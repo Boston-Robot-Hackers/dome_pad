@@ -12,6 +12,7 @@
 #include <SPI.h>
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
+#include <esp_system.h>
 
 // Anti-aliased fonts from TFT_eSPI's examples (Noto Sans, SIL Open Font License).
 #include "fonts/NotoSansBold15.h"
@@ -45,6 +46,18 @@ constexpr uint32_t LOOP_MS = 20;
 // The backlight is a large part of the board's draw: 0 = off, 255 = full.
 constexpr uint32_t CPU_MHZ = 80;
 constexpr int BACKLIGHT_LEVEL = 128;
+
+// After this long with no touch the backlight dims to DIM_LEVEL. The touch that
+// brightens it again is ignored until the finger lifts, so a blind tap can't drive.
+constexpr uint32_t DIM_AFTER_MS = 2 * 60 * 1000;
+constexpr int DIM_LEVEL = 12;
+
+// Runtime tracking, for measuring battery life. Minutes are saved to flash
+// (namespace yellowpad_pwr) once a minute, so a power cut loses at most one.
+// Holding the status bar for CHARGED_HOLD_MS marks the battery as charged.
+constexpr uint32_t SAVE_EVERY_MS = 60 * 1000;
+constexpr uint32_t CHARGED_HOLD_MS = 3000;
+constexpr uint32_t LAST_RUN_SHOW_MS = 10 * 1000;
 
 enum Dir { UP, DOWN, LEFT, RIGHT, DIR_COUNT, NONE = -1 };
 enum Tab { DRIVE, ROS, SETTINGS, TAB_COUNT };
@@ -115,6 +128,24 @@ int adjustHeld = 0;  // -1 while the finger is on -, +1 on +
 bool stopHeld = false;
 bool wasTouched = false;
 bool wasConnected = false;
+uint32_t lastActivityMs = 0;
+bool dimmed = false;
+bool swallowTouch = false;  // the touch that woke the screen; ignored until lifted
+
+// Since-charge totals are the offset plus this session's minutes. The offset is the
+// saved total at boot, or minus the session minutes when marked charged mid-session.
+Preferences power;
+int32_t chargeOffsetMin = 0;
+int32_t dimOffsetMin = 0;
+uint32_t lastRunMin = 0;
+bool brownoutSeen = false;  // a brownout reset happened since the last charge
+uint32_t dimmedSessionMs = 0;
+uint32_t dimStartMs = 0;
+uint32_t lastSaveMs = 0;
+bool holdingStatus = false;
+bool holdDone = false;
+uint32_t holdStartMs = 0;
+String shownRuntime;
 
 Rect settingRect(int i) { return {8, static_cast<int16_t>(ROW_Y + i * ROW_H), 304, ROW_H - 2}; }
 
@@ -217,11 +248,37 @@ void drawAdjust(int sign) {
   if (sign > 0) tft.drawWideLine(cx, cy - half, cx, cy + half, 3, glyph, fill);
 }
 
-// Name on the left; connection dot and state on the right.
+uint32_t sessionMin() { return millis() / 60000; }
+
+uint32_t dimSessionMin() {
+  uint32_t ms = dimmedSessionMs + (dimmed ? millis() - dimStartMs : 0);
+  return ms / 60000;
+}
+
+uint32_t sinceChargeMin() { return chargeOffsetMin + static_cast<int32_t>(sessionMin()); }
+uint32_t dimSinceChargeMin() { return dimOffsetMin + static_cast<int32_t>(dimSessionMin()); }
+
+String formatHM(uint32_t minutes) {
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%lu:%02lu", static_cast<unsigned long>(minutes / 60),
+           static_cast<unsigned long>(minutes % 60));
+  return buf;
+}
+
+// Right side of the status bar: the previous run for a few seconds after boot, then
+// running time since the last charge.
+String runtimeText() {
+  if (lastRunMin > 0 && millis() < LAST_RUN_SHOW_MS) return "Last run " + formatHM(lastRunMin);
+  return "Run " + formatHM(sinceChargeMin());
+}
+
+// Runtime on the left (amber if a brownout was seen since charge); connection dot
+// and state on the right.
 void drawStatus(bool connected) {
   int cy = STATUS_H / 2 + 2;
   tft.fillRect(0, 0, 320, STATUS_H, COLOR_BG);
-  drawText("Yellow Pad", 12, cy, ML_DATUM, COLOR_DIM, COLOR_BG);
+  shownRuntime = runtimeText();
+  drawText(shownRuntime, 12, cy, ML_DATUM, brownoutSeen ? COLOR_WARN : COLOR_DIM, COLOR_BG);
   const char* state = connected ? "Connected" : "Waiting for Bluetooth";
   drawText(state, 308, cy, MR_DATUM, connected ? COLOR_TEXT : COLOR_DIM, COLOR_BG);
   tft.fillSmoothCircle(308 - textWidth(state) - 10, cy, 3, connected ? COLOR_ACCENT : COLOR_DIM, COLOR_BG);
@@ -352,6 +409,86 @@ void changeSetting(int steps) {
   drawSettingRow(selected);
 }
 
+void setBacklight(bool bright) {
+  if (bright && dimmed) dimmedSessionMs += millis() - dimStartMs;
+  if (!bright && !dimmed) dimStartMs = millis();
+  dimmed = !bright;
+  analogWrite(TFT_BL, bright ? BACKLIGHT_LEVEL : DIM_LEVEL);
+}
+
+// Restarts the dim timer and brightens the screen. Returns true if it was dim.
+bool noteActivity() {
+  lastActivityMs = millis();
+  if (!dimmed) return false;
+  setBacklight(true);
+  return true;
+}
+
+void dimIfIdle() {
+  if (!dimmed && millis() - lastActivityMs >= DIM_AFTER_MS) setBacklight(false);
+}
+
+void saveRuntime() {
+  power.putUInt("session_min", sessionMin());
+  power.putUInt("charge_min", sinceChargeMin());
+  power.putUInt("dim_min", dimSinceChargeMin());
+}
+
+// Runs before the display, BLE or backlight start, so a brownout is recorded while the
+// battery can still power a flash write. Restarts shorter than a minute (a dying
+// battery restarts over and over) don't replace the last run.
+void loadRuntime() {
+  esp_reset_reason_t reason = esp_reset_reason();
+  power.begin("yellowpad_pwr", false);
+  uint32_t prevSession = power.getUInt("session_min", 0);
+  if (prevSession > 0) power.putUInt("last_min", prevSession);
+  if (reason == ESP_RST_BROWNOUT) power.putBool("brownout", true);
+  power.putUInt("session_min", 0);
+
+  lastRunMin = power.getUInt("last_min", 0);
+  brownoutSeen = power.getBool("brownout", false);
+  chargeOffsetMin = power.getUInt("charge_min", 0);
+  dimOffsetMin = power.getUInt("dim_min", 0);
+  Serial.printf("Runtime: reset reason %d, last run %s, since charge %s (dimmed %s)%s\n", reason,
+                formatHM(lastRunMin).c_str(), formatHM(chargeOffsetMin).c_str(),
+                formatHM(dimOffsetMin).c_str(), brownoutSeen ? ", brownout since charge" : "");
+}
+
+void markCharged() {
+  chargeOffsetMin = -static_cast<int32_t>(sessionMin());
+  dimOffsetMin = -static_cast<int32_t>(dimSessionMin());
+  brownoutSeen = false;
+  power.putBool("brownout", false);
+  saveRuntime();
+  Serial.println("Runtime: marked charged");
+  drawStatus(wasConnected);
+}
+
+void saveRuntimeIfDue() {
+  if (millis() - lastSaveMs < SAVE_EVERY_MS) return;
+  lastSaveMs = millis();
+  saveRuntime();
+  Serial.printf("Runtime: session %s, since charge %s (dimmed %s)\n", formatHM(sessionMin()).c_str(),
+                formatHM(sinceChargeMin()).c_str(), formatHM(dimSinceChargeMin()).c_str());
+}
+
+// Holding the status bar for CHARGED_HOLD_MS marks the battery charged, once per hold.
+void trackChargedHold(bool touched, int y) {
+  if (!touched || y >= STATUS_H) {
+    holdingStatus = false;
+    holdDone = false;
+    return;
+  }
+  if (!holdingStatus) {
+    holdingStatus = true;
+    holdStartMs = millis();
+  }
+  if (!holdDone && millis() - holdStartMs >= CHARGED_HOLD_MS) {
+    holdDone = true;
+    markCharged();
+  }
+}
+
 bool readTouch(int& x, int& y) {
   if (!touch.tirqTouched() || !touch.touched()) return false;
   TS_Point p = touch.getPoint();
@@ -375,12 +512,16 @@ int actionAt(int x, int y) {
 }
 
 void handleTouch() {
-  int x, y;
+  int x = 0, y = 0;
   bool touched = readTouch(x, y);
   bool newPress = touched && !wasTouched;
   wasTouched = touched;
 
-  if (!touched) {
+  if (touched && noteActivity()) swallowTouch = true;
+  if (!touched) swallowTouch = false;
+  trackChargedHold(touched && !swallowTouch, y);
+
+  if (!touched || swallowTouch) {
     setActive(NONE);
     setActionHeld(-1);
     setAdjustHeld(0);
@@ -416,6 +557,7 @@ void handleTouch() {
 void setup() {
   setCpuFrequencyMhz(CPU_MHZ);
   Serial.begin(115200);
+  loadRuntime();
 
   // Own namespace: the first design stores percentages under the same keys.
   prefs.begin("yellowpad2", false);
@@ -439,6 +581,7 @@ void setup() {
   gamepad.begin(&config);
 
   drawAll();
+  lastActivityMs = millis();
 }
 
 void loop() {
@@ -446,9 +589,13 @@ void loop() {
   if (connected != wasConnected) {
     wasConnected = connected;
     drawStatus(connected);
+    noteActivity();                // show the status change
     if (connected) sendGamepad();  // start the host from a centered, disabled state
   }
   handleTouch();
   if (tab == ROS) rosTabLoop();
+  dimIfIdle();
+  saveRuntimeIfDue();
+  if (runtimeText() != shownRuntime) drawStatus(connected);
   delay(LOOP_MS);
 }
