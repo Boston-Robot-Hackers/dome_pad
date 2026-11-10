@@ -184,6 +184,21 @@ does nothing else until you lift your finger, so tapping a dim screen can't
 drive the robot. Holding an arrow counts as touching, so the screen never dims
 while driving. Bluetooth connecting or dropping also brightens it.
 
+**Runtime tracking (tabbed design), for measuring battery life:** the right
+end of the status bar shows `Run h:mm`, the running time since the battery
+was last marked charged. **Hold the status bar for 3 seconds to mark it
+charged** (it goes back to `Run 0:00`). For the first 10 seconds after power-on
+it shows `Last run h:mm` instead: how long the previous power-on lasted.
+Totals are saved to flash once a minute (namespace `yellowpad_pwr`), so a dead
+battery loses at most a minute. Power-ons shorter than a minute (a dying
+battery restarts repeatedly) don't replace the last run. Yellow text means a
+brownout reset happened since the last charge, a hint that the battery ran
+out. The serial log also shows minutes spent dimmed.
+
+To measure a charge: charge the PM11, hold the status bar, use the pad as
+normal until the battery dies, then power it from USB and read `Last run`
+(one continuous session) or `Run` (the total since charge).
+
 **Limits:** resistive touch reads one point at a time, so one direction at a
 time, no diagonals, and you can't hold A/B/C while driving. Pairing works
 with Linux, macOS, Windows and Android; iOS generally ignores generic BLE
@@ -315,6 +330,7 @@ and default are `SPEED_STEP` (10) and `SPEED_DEFAULT` (50), and the panel is
 | Report rate / touch polling | `LOOP_MS` (20 ms) |
 | Screen brightness or CPU speed | `BACKLIGHT_LEVEL` (0–255, default 128), `CPU_MHZ` (80; BLE needs at least 80) |
 | Idle dimming | `DIM_AFTER_MS` (2 min), `DIM_LEVEL` (0–255, default 12) |
+| Runtime tracking | `SAVE_EVERY_MS` (1 min), `CHARGED_HOLD_MS` (3 s), `LAST_RUN_SHOW_MS` (10 s) |
 
 How the code is organized:
 
