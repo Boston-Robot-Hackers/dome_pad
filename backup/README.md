@@ -27,7 +27,7 @@ before flashing the Yellow Pad firmware.
 3. Check the backup is intact:
 
    ```bash
-   cd /Users/pitosalas/mydev/yellow_pad/backup
+   cd backup        # from the repo root
    shasum -a 256 -c factory-firmware-4MB.bin.sha256
    ```
 

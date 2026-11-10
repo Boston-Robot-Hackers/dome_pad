@@ -12,7 +12,10 @@
 #include <SPI.h>
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
+#include <driver/gpio.h>
+#include <esp_sleep.h>
 #include <esp_system.h>
+#include <sys/time.h>
 
 // Anti-aliased fonts from TFT_eSPI's examples (Noto Sans, SIL Open Font License).
 #include "fonts/NotoSansBold15.h"
@@ -51,6 +54,11 @@ constexpr int BACKLIGHT_LEVEL = 128;
 // brightens it again is ignored until the finger lifts, so a blind tap can't drive.
 constexpr uint32_t DIM_AFTER_MS = 2 * 60 * 1000;
 constexpr int DIM_LEVEL = 12;
+
+// After this long with no touch the pad deep-sleeps: backlight and screen off, Bluetooth
+// gone (the robot stops). A touch wakes it; it reboots and reconnects in a few seconds,
+// and the waking touch is ignored until lifted.
+constexpr uint32_t SLEEP_AFTER_MS = 10 * 60 * 1000;
 
 // Runtime tracking, for measuring battery life. Minutes are saved to flash
 // (namespace yellowpad_pwr) once a minute, so a power cut loses at most one.
@@ -130,16 +138,23 @@ bool wasTouched = false;
 bool wasConnected = false;
 uint32_t lastActivityMs = 0;
 bool dimmed = false;
-bool swallowTouch = false;  // the touch that woke the screen; ignored until lifted
+bool swallowTouch = true;  // a touch held at boot or when the screen woke; ignored until lifted
 
 // Since-charge totals are the offset plus this session's minutes. The offset is the
 // saved total at boot, or minus the session minutes when marked charged mid-session.
+// A session runs from power-on to power loss, through any deep sleeps. RTC_DATA_ATTR
+// values survive deep sleep and are reset on every other boot.
 Preferences power;
-int32_t chargeOffsetMin = 0;
-int32_t dimOffsetMin = 0;
-uint32_t lastRunMin = 0;
-bool brownoutSeen = false;  // a brownout reset happened since the last charge
-uint32_t dimmedSessionMs = 0;
+RTC_DATA_ATTR int32_t chargeOffsetMin = 0;
+RTC_DATA_ATTR int32_t dimOffsetMin = 0;
+RTC_DATA_ATTR int32_t sleepOffsetMin = 0;
+RTC_DATA_ATTR uint32_t lastRunMin = 0;
+RTC_DATA_ATTR bool brownoutSeen = false;  // a brownout reset happened since the last charge
+RTC_DATA_ATTR uint64_t sessionBaseMs = 0;   // session time before this boot, awake and asleep
+RTC_DATA_ATTR uint32_t dimmedSessionMs = 0;
+RTC_DATA_ATTR uint32_t sleptSessionMs = 0;
+RTC_DATA_ATTR int64_t sleepStartUs = 0;     // RTC time when the last deep sleep began
+bool wokeFromSleep = false;
 uint32_t dimStartMs = 0;
 uint32_t lastSaveMs = 0;
 bool holdingStatus = false;
@@ -248,15 +263,25 @@ void drawAdjust(int sign) {
   if (sign > 0) tft.drawWideLine(cx, cy - half, cx, cy + half, 3, glyph, fill);
 }
 
-uint32_t sessionMin() { return millis() / 60000; }
+uint32_t sessionMin() { return (sessionBaseMs + millis()) / 60000; }
 
 uint32_t dimSessionMin() {
   uint32_t ms = dimmedSessionMs + (dimmed ? millis() - dimStartMs : 0);
   return ms / 60000;
 }
 
+uint32_t sleepSessionMin() { return sleptSessionMs / 60000; }
+
 uint32_t sinceChargeMin() { return chargeOffsetMin + static_cast<int32_t>(sessionMin()); }
 uint32_t dimSinceChargeMin() { return dimOffsetMin + static_cast<int32_t>(dimSessionMin()); }
+uint32_t sleepSinceChargeMin() { return sleepOffsetMin + static_cast<int32_t>(sleepSessionMin()); }
+
+// Microseconds from the RTC clock, which keeps counting through deep sleep.
+int64_t rtcNowUs() {
+  timeval tv;
+  gettimeofday(&tv, nullptr);
+  return static_cast<int64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
+}
 
 String formatHM(uint32_t minutes) {
   char buf[12];
@@ -268,7 +293,7 @@ String formatHM(uint32_t minutes) {
 // Right side of the status bar: the previous run for a few seconds after boot, then
 // running time since the last charge.
 String runtimeText() {
-  if (lastRunMin > 0 && millis() < LAST_RUN_SHOW_MS) return "Last run " + formatHM(lastRunMin);
+  if (lastRunMin > 0 && !wokeFromSleep && millis() < LAST_RUN_SHOW_MS) return "Last run " + formatHM(lastRunMin);
   return "Run " + formatHM(sinceChargeMin());
 }
 
@@ -432,14 +457,26 @@ void saveRuntime() {
   power.putUInt("session_min", sessionMin());
   power.putUInt("charge_min", sinceChargeMin());
   power.putUInt("dim_min", dimSinceChargeMin());
+  power.putUInt("sleep_min", sleepSinceChargeMin());
 }
 
 // Runs before the display, BLE or backlight start, so a brownout is recorded while the
 // battery can still power a flash write. Restarts shorter than a minute (a dying
-// battery restarts over and over) don't replace the last run.
+// battery restarts over and over) don't replace the last run. Waking from deep sleep
+// continues the session: the totals are still in RTC memory.
 void loadRuntime() {
   esp_reset_reason_t reason = esp_reset_reason();
   power.begin("yellowpad_pwr", false);
+  if (reason == ESP_RST_DEEPSLEEP) {
+    wokeFromSleep = true;
+    int64_t sleptMs = max<int64_t>(0, (rtcNowUs() - sleepStartUs) / 1000);
+    sessionBaseMs += sleptMs;
+    sleptSessionMs += sleptMs;
+    Serial.printf("Runtime: woke after %s asleep, since charge %s (asleep %s)\n",
+                  formatHM(sleptMs / 60000).c_str(), formatHM(sinceChargeMin()).c_str(),
+                  formatHM(sleepSinceChargeMin()).c_str());
+    return;
+  }
   uint32_t prevSession = power.getUInt("session_min", 0);
   if (prevSession > 0) power.putUInt("last_min", prevSession);
   if (reason == ESP_RST_BROWNOUT) power.putBool("brownout", true);
@@ -449,14 +486,16 @@ void loadRuntime() {
   brownoutSeen = power.getBool("brownout", false);
   chargeOffsetMin = power.getUInt("charge_min", 0);
   dimOffsetMin = power.getUInt("dim_min", 0);
-  Serial.printf("Runtime: reset reason %d, last run %s, since charge %s (dimmed %s)%s\n", reason,
-                formatHM(lastRunMin).c_str(), formatHM(chargeOffsetMin).c_str(),
-                formatHM(dimOffsetMin).c_str(), brownoutSeen ? ", brownout since charge" : "");
+  sleepOffsetMin = power.getUInt("sleep_min", 0);
+  Serial.printf("Runtime: reset reason %d, last run %s, since charge %s (dimmed %s, asleep %s)%s\n", reason,
+                formatHM(lastRunMin).c_str(), formatHM(chargeOffsetMin).c_str(), formatHM(dimOffsetMin).c_str(),
+                formatHM(sleepOffsetMin).c_str(), brownoutSeen ? ", brownout since charge" : "");
 }
 
 void markCharged() {
   chargeOffsetMin = -static_cast<int32_t>(sessionMin());
   dimOffsetMin = -static_cast<int32_t>(dimSessionMin());
+  sleepOffsetMin = -static_cast<int32_t>(sleepSessionMin());
   brownoutSeen = false;
   power.putBool("brownout", false);
   saveRuntime();
@@ -468,8 +507,39 @@ void saveRuntimeIfDue() {
   if (millis() - lastSaveMs < SAVE_EVERY_MS) return;
   lastSaveMs = millis();
   saveRuntime();
-  Serial.printf("Runtime: session %s, since charge %s (dimmed %s)\n", formatHM(sessionMin()).c_str(),
-                formatHM(sinceChargeMin()).c_str(), formatHM(dimSinceChargeMin()).c_str());
+  Serial.printf("Runtime: session %s, since charge %s (dimmed %s, asleep %s)\n", formatHM(sessionMin()).c_str(),
+                formatHM(sinceChargeMin()).c_str(), formatHM(dimSinceChargeMin()).c_str(),
+                formatHM(sleepSinceChargeMin()).c_str());
+}
+
+// Deep sleep after SLEEP_AFTER_MS without a touch. The touch controller's IRQ line
+// (GPIO 36, low while touched) wakes the chip, which then boots from the start.
+void sleepIfIdle() {
+  if (millis() - lastActivityMs < SLEEP_AFTER_MS) return;
+  if (touch.tirqTouched()) return;  // a finger is down; it would wake the chip at once
+  Serial.println("Sleep: idle, going to deep sleep");
+  if (tab == ROS) rosTabStop();
+
+  if (dimmed) dimmedSessionMs += millis() - dimStartMs;
+  dimmed = false;
+  saveRuntime();
+  sessionBaseMs += millis();
+  sleepStartUs = rtcNowUs();
+
+  // Backlight off, held low through sleep (GPIO 21 would otherwise float).
+  ledcDetachPin(TFT_BL);
+  pinMode(TFT_BL, OUTPUT);
+  digitalWrite(TFT_BL, LOW);
+  gpio_hold_en(static_cast<gpio_num_t>(TFT_BL));
+  gpio_deep_sleep_hold_en();
+
+  tft.writecommand(0x28);  // ILI9341 display off
+  tft.writecommand(0x10);  // ILI9341 sleep in
+  delay(10);
+
+  esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(TOUCH_IRQ), 0);
+  Serial.flush();
+  esp_deep_sleep_start();
 }
 
 // Holding the status bar for CHARGED_HOLD_MS marks the battery charged, once per hold.
@@ -555,6 +625,9 @@ void handleTouch() {
 }
 
 void setup() {
+  // Release the backlight pin held low during deep sleep.
+  gpio_hold_dis(static_cast<gpio_num_t>(TFT_BL));
+  gpio_deep_sleep_hold_dis();
   setCpuFrequencyMhz(CPU_MHZ);
   Serial.begin(115200);
   loadRuntime();
@@ -595,6 +668,7 @@ void loop() {
   handleTouch();
   if (tab == ROS) rosTabLoop();
   dimIfIdle();
+  sleepIfIdle();
   saveRuntimeIfDue();
   if (runtimeText() != shownRuntime) drawStatus(connected);
   delay(LOOP_MS);

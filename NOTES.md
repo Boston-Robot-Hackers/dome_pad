@@ -5,7 +5,10 @@ Yellow Display" board shows four arrows and per-direction speed settings, and
 pairs with the robot's Raspberry Pi as a standard BLE gamepad. On the Pi, the
 standard `joy` and `teleop_twist_joy` packages turn it into `/cmd_vel`.
 
-Last updated 2026-10-18.
+This is its own repo (`Boston-Robot-Hackers/yellow_pad`), also used as a
+submodule of `esp32-c6-demo`. Paths below are relative to the repo root.
+
+Last updated 2026-11-10.
 
 ## Where things stand
 
@@ -60,7 +63,9 @@ yellow_pad/
   should be ...:c8:b2).
 - **USB:** micro-USB through a CH340 serial chip. macOS has the driver built
   in; it appears as `/dev/cu.usbserial-*` (was `-2130`; the number depends on
-  the port).
+  the port), or as `/dev/cu.wchusbserial*` (seen 2026-11-10 as `...110`).
+  PlatformIO may pick another serial port (e.g. a Bluetooth label maker), so
+  pass `--upload-port` if more than one is listed.
 - **Cables:** the manual says don't use a USB-C to USB-C cable (the board
   lacks the resistors that make a USB-C port switch on). A micro-USB data
   cable through a USB-C adapter works.
@@ -69,7 +74,8 @@ yellow_pad/
   operations are fine.
 - **Power on the go:** a USB power bank with a micro-USB cable. Watch for
   banks that auto-shut-off at low current (the board draws about 0.1 A,
-  measured with the CPU at 80 MHz and the backlight at half); use a bank with a low-current/trickle mode. (A power bank's
+  measured with the CPU at 80 MHz and the backlight at half); use a bank
+  with a low-current/trickle mode. (A power bank's
   own lithium cells are fine: it outputs regulated 5 V and has its own
   charging and protection.) Don't wire a bare LiPo cell to the board: it
   gives 3.0-4.2 V rather than 5 V, and the board has no charging or
@@ -95,6 +101,10 @@ yellow_pad/
     battery stays out of the circuit. Handy at the bench.
   - To check once it arrives: the docs don't mention a low-load auto
     shut-off, but confirm by running the pad on it for 30+ minutes.
+  - Its LEDs aren't a reliable gauge. Options for a real one (MAX17048 fuel
+    gauge on the pad's I2C, an inline USB meter, a resistor divider) and the
+    MAX17048 wiring are in the parent repo's `power_monitor.md`, under
+    "Measuring charge with an added part".
 - **Other battery options** (suggestions from Alan Kilian, 2026-10-18):
   - All-in-one: the NULLLAB PM11 above
     (https://www.amazon.com/dp/B0GWZTQC35).
@@ -202,6 +212,14 @@ does nothing else until you lift your finger, so tapping a dim screen can't
 drive the robot. Holding an arrow counts as touching, so the screen never dims
 while driving. Bluetooth connecting or dropping also brightens it.
 
+**Deep sleep (tabbed design):** after 10 minutes without a touch, the pad
+turns the backlight and screen off and deep-sleeps. Bluetooth drops, so the
+robot stops. Touch the screen to wake it: it reboots, reconnects in a few
+seconds, and ignores that touch until you lift your finger. It also sleeps
+with the ROS tab open, and wakes on the Drive tab. The touch controller's
+IRQ line (GPIO 36) wakes the chip. Asleep, the board's regulator,
+USB-serial chip and power LED still draw several mA.
+
 **Runtime tracking (tabbed design), for measuring battery life:** the left
 end of the status bar (where the name was) shows `Run h:mm`, the running time since the battery
 was last marked charged. The status bar is the thin strip across the very
@@ -213,7 +231,9 @@ Totals are saved to flash once a minute (namespace `yellowpad_pwr`), so a dead
 battery loses at most a minute. Power-ons shorter than a minute (a dying
 battery restarts repeatedly) don't replace the last run. Amber text means a
 brownout reset happened since the last charge, a hint that the battery ran
-out. The serial log also shows minutes spent dimmed.
+out. The serial log also shows minutes spent dimmed and asleep. Deep sleep
+doesn't end a run: the time asleep counts toward `Run` and `Last run`, and
+waking doesn't show `Last run`.
 
 To measure a charge: charge the PM11, hold the status bar, use the pad as
 normal until the battery dies, then power it from USB and read `Last run`
@@ -260,8 +280,8 @@ If pairing gets stuck: `bluetoothctl remove <addr>` and start again.
 Install or update (copy from the Mac, then build on the Pi):
 
 ```bash
-# Mac
-scp -r /Users/pitosalas/mydev/yellow_pad/yellow_pad pitosalas@dome-R1:~/ros2_ws/src/
+# Mac, from the repo root
+scp -r yellow_pad pitosalas@dome-R1:~/ros2_ws/src/
 
 # Pi
 cd ~/ros2_ws
@@ -316,7 +336,7 @@ PlatformIO env builds one of the two files (`build_src_filter`). Add
 No install needed: PlatformIO runs via `uvx` (from `brew install uv`).
 
 ```bash
-cd /Users/pitosalas/mydev/yellow_pad/firmware
+cd firmware                                    # from the repo root
 uvx --from platformio pio run                  # build only
 uvx --from platformio pio run -t upload        # build + flash
 uvx --from platformio pio device monitor       # serial output (Ctrl-C to quit)
@@ -350,6 +370,7 @@ and default are `SPEED_STEP` (10) and `SPEED_DEFAULT` (50), and the panel is
 | Report rate / touch polling | `LOOP_MS` (20 ms) |
 | Screen brightness or CPU speed | `BACKLIGHT_LEVEL` (0–255, default 128), `CPU_MHZ` (80; BLE needs at least 80) |
 | Idle dimming | `DIM_AFTER_MS` (2 min), `DIM_LEVEL` (0–255, default 12) |
+| Idle deep sleep | `SLEEP_AFTER_MS` (10 min) |
 | Runtime tracking | `SAVE_EVERY_MS` (1 min), `CHARGED_HOLD_MS` (3 s), `LAST_RUN_SHOW_MS` (10 s) |
 
 How the code is organized:
@@ -400,7 +421,7 @@ board may use an ST7789 instead: replace `-DILI9341_2_DRIVER=1` with
 See `backup/README.md`. Short version:
 
 ```bash
-cd /Users/pitosalas/mydev/yellow_pad/backup
+cd backup                                       # from the repo root
 shasum -a 256 -c factory-firmware-4MB.bin.sha256
 uvx esptool --port /dev/cu.usbserial-XXXX --baud 115200 write-flash 0 factory-firmware-4MB.bin
 ```
