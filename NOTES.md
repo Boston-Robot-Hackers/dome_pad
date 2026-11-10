@@ -68,8 +68,8 @@ yellow_pad/
   corrupt at every speed tried. Uploads are set to 115200 baud. Short
   operations are fine.
 - **Power on the go:** a USB power bank with a micro-USB cable. Watch for
-  banks that auto-shut-off at low current (the board draws roughly
-  100-150 mA); use a bank with a low-current/trickle mode. (A power bank's
+  banks that auto-shut-off at low current (the board draws about 0.1 A,
+  measured with the CPU at 80 MHz and the backlight at half); use a bank with a low-current/trickle mode. (A power bank's
   own lithium cells are fine: it outputs regulated 5 V and has its own
   charging and protection.) Don't wire a bare LiPo cell to the board: it
   gives 3.0-4.2 V rather than 5 V, and the board has no charging or
@@ -204,8 +204,10 @@ while driving. Bluetooth connecting or dropping also brightens it.
 
 **Runtime tracking (tabbed design), for measuring battery life:** the left
 end of the status bar (where the name was) shows `Run h:mm`, the running time since the battery
-was last marked charged. **Hold the status bar for 3 seconds to mark it
-charged** (it goes back to `Run 0:00`). For the first 10 seconds after power-on
+was last marked charged. The status bar is the thin strip across the very
+top of the screen, above the tabs. **Press a finger on it and keep it there
+for 3 seconds to mark the battery charged** (it goes back to `Run 0:00`).
+Press near the top edge: a little lower hits a tab instead. For the first 10 seconds after power-on
 it shows `Last run h:mm` instead: how long the previous power-on lasted.
 Totals are saved to flash once a minute (namespace `yellowpad_pwr`), so a dead
 battery loses at most a minute. Power-ons shorter than a minute (a dying
