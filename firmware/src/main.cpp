@@ -35,6 +35,11 @@ constexpr int ANGULAR_MAX = 1000;  // mrad/s (1.0 rad/s)
 
 constexpr uint32_t LOOP_MS = 20;
 
+// Power saving. 80 MHz is the lowest speed BLE supports, and plenty for touch and drawing.
+// The backlight is a large part of the board's draw: 0 = off, 255 = full.
+constexpr uint32_t CPU_MHZ = 80;
+constexpr int BACKLIGHT_LEVEL = 128;
+
 enum Dir { UP, DOWN, LEFT, RIGHT, DIR_COUNT, NONE = -1 };
 enum Tab { DRIVE, SETTINGS, TAB_COUNT };
 const char* const TAB_NAMES[TAB_COUNT] = {"Drive", "Settings"};
@@ -358,6 +363,7 @@ void handleTouch() {
 }
 
 void setup() {
+  setCpuFrequencyMhz(CPU_MHZ);
   Serial.begin(115200);
 
   // Own namespace: the first design stores percentages under the same keys.
@@ -366,6 +372,7 @@ void setup() {
 
   tft.init();
   tft.setRotation(1);
+  analogWrite(TFT_BL, BACKLIGHT_LEVEL);  // tft.init() turned it fully on; PWM dims it
   touchSpi.begin(TOUCH_CLK, TOUCH_MISO, TOUCH_MOSI, TOUCH_CS);
   touch.begin(touchSpi);
   touch.setRotation(1);

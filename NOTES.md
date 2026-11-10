@@ -74,14 +74,18 @@ yellow_pad/
   charging and protection.) Don't wire a bare LiPo cell to the board: it
   gives 3.0-4.2 V rather than 5 V, and the board has no charging or
   low-voltage cutoff.
-- **Built-in battery (planned, not yet tested):** NULLLAB PM11 module
-  (docs: https://github.com/nulllaborg/pm11-module). 1200 mAh LiPo, boost to
+- **Built-in battery (on hand, not yet tested):** NULLLAB PM11 module
+  (docs: https://github.com/nulllaborg/pm11-module). It is the board sold as
+  "LiPo Battery Module, USB-C Rechargeable 1200mAh, 3.3V 5V USB Output".
+  Full connection and usage steps are in the parent repo's `POWER.md`,
+  under "Using the PM11 with the CYD". 1200 mAh LiPo, boost to
   5 V/1.2 A, USB-C charging (~1 hour), 4-LED gauge, slide switch, 56×40 mm
   with two M4 holes, so it fits behind the board. Expect roughly 5-8 hours of
   driving per charge.
   - Connect with a short USB-A to micro-USB cable, or wire its 5V header to
     the CYD's 4-pin P1 connector (5V → VIN, GND → GND; check polarity against
-    both pinouts first).
+    both pinouts first). Never use its 3.3V, BAT or JST outputs: the CYD
+    needs 5 V.
   - **It has no low-battery cutoff.** Switch it OFF after driving (OFF fully
     disconnects the battery), and recharge when only one LED is lit.
   - **Not a UPS:** plugging or unplugging USB-C while running will likely
@@ -303,6 +307,7 @@ and default are `SPEED_STEP` (10) and `SPEED_DEFAULT` (50), and the panel is
 | Colors | `COLOR_*` constants |
 | Which way an arrow pushes the stick | the `switch` in `sendGamepad()` |
 | Report rate / touch polling | `LOOP_MS` (20 ms) |
+| Screen brightness or CPU speed | `BACKLIGHT_LEVEL` (0–255, default 128), `CPU_MHZ` (80; BLE needs at least 80) |
 
 How the code is organized:
 
