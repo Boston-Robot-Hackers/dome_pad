@@ -40,6 +40,11 @@ constexpr uint32_t LOOP_MS = 20;
 constexpr uint32_t CPU_MHZ = 80;
 constexpr int BACKLIGHT_LEVEL = 128;
 
+// After this long with no touch the backlight dims to DIM_LEVEL. The touch that
+// brightens it again is ignored until the finger lifts, so a blind tap can't drive.
+constexpr uint32_t DIM_AFTER_MS = 2 * 60 * 1000;
+constexpr int DIM_LEVEL = 12;
+
 enum Dir { UP, DOWN, LEFT, RIGHT, DIR_COUNT, NONE = -1 };
 enum Tab { DRIVE, SETTINGS, TAB_COUNT };
 const char* const TAB_NAMES[TAB_COUNT] = {"Drive", "Settings"};
@@ -115,6 +120,9 @@ int adjustHeld = 0;  // -1 while the finger is on -, +1 on +
 bool stopHeld = false;
 bool wasTouched = false;
 bool wasConnected = false;
+uint32_t lastActivityMs = 0;
+bool dimmed = false;
+bool swallowTouch = false;  // the touch that woke the screen; ignored until lifted
 
 Rect settingRect(int i) { return {8, static_cast<int16_t>(ROW_Y + i * ROW_H), 304, ROW_H - 2}; }
 
@@ -302,6 +310,23 @@ void changeSetting(int steps) {
   drawSettingRow(selected);
 }
 
+void setBacklight(bool bright) {
+  dimmed = !bright;
+  analogWrite(TFT_BL, bright ? BACKLIGHT_LEVEL : DIM_LEVEL);
+}
+
+// Restarts the dim timer and brightens the screen. Returns true if it was dim.
+bool noteActivity() {
+  lastActivityMs = millis();
+  if (!dimmed) return false;
+  setBacklight(true);
+  return true;
+}
+
+void dimIfIdle() {
+  if (!dimmed && millis() - lastActivityMs >= DIM_AFTER_MS) setBacklight(false);
+}
+
 bool readTouch(int& x, int& y) {
   if (!touch.tirqTouched() || !touch.touched()) return false;
   TS_Point p = touch.getPoint();
@@ -330,7 +355,10 @@ void handleTouch() {
   bool newPress = touched && !wasTouched;
   wasTouched = touched;
 
-  if (!touched) {
+  if (touched && noteActivity()) swallowTouch = true;
+  if (!touched) swallowTouch = false;
+
+  if (!touched || swallowTouch) {
     setActive(NONE);
     setActionHeld(-1);
     setAdjustHeld(0);
@@ -388,6 +416,7 @@ void setup() {
   gamepad.begin(&config);
 
   drawAll();
+  lastActivityMs = millis();
 }
 
 void loop() {
@@ -395,8 +424,10 @@ void loop() {
   if (connected != wasConnected) {
     wasConnected = connected;
     drawStatus(connected);
+    noteActivity();                // show the status change
     if (connected) sendGamepad();  // start the host from a centered, disabled state
   }
   handleTouch();
+  dimIfIdle();
   delay(LOOP_MS);
 }

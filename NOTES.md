@@ -178,6 +178,12 @@ touched. Lifting your finger, Bluetooth dropping, or the pad losing power all
 stop the robot. On release, teleop_twist_joy sends one zero Twist, then goes
 quiet.
 
+**Screen dimming (tabbed design):** after 2 minutes without a touch, the
+backlight dims to a faint glow. The first touch only brightens it again and
+does nothing else until you lift your finger, so tapping a dim screen can't
+drive the robot. Holding an arrow counts as touching, so the screen never dims
+while driving. Bluetooth connecting or dropping also brightens it.
+
 **Limits:** resistive touch reads one point at a time, so one direction at a
 time, no diagonals, and you can't hold A/B/C while driving. Pairing works
 with Linux, macOS, Windows and Android; iOS generally ignores generic BLE
@@ -308,6 +314,7 @@ and default are `SPEED_STEP` (10) and `SPEED_DEFAULT` (50), and the panel is
 | Which way an arrow pushes the stick | the `switch` in `sendGamepad()` |
 | Report rate / touch polling | `LOOP_MS` (20 ms) |
 | Screen brightness or CPU speed | `BACKLIGHT_LEVEL` (0–255, default 128), `CPU_MHZ` (80; BLE needs at least 80) |
+| Idle dimming | `DIM_AFTER_MS` (2 min), `DIM_LEVEL` (0–255, default 12) |
 
 How the code is organized:
 
