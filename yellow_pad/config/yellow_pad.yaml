@@ -15,7 +15,7 @@ teleop_twist_joy_node:
     axis_linear:
       x: 1
     scale_linear:
-      x: 0.3          # m/s at 100%
+      x: 1.5          # m/s at 100%; must match LINEAR_MAX in firmware/src/main.cpp
     # Left stick X (Left/Right arrows) turns.
     axis_angular:
       yaw: 0

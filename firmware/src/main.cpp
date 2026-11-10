@@ -13,6 +13,12 @@
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 
+// Anti-aliased fonts from TFT_eSPI's examples (Noto Sans, SIL Open Font License).
+#include "fonts/NotoSansBold15.h"
+#include "fonts/NotoSansMonoSCB20.h"
+#include "ros_tab.h"
+#include "ui.h"
+
 // Touch controller is on its own SPI bus on the CYD.
 constexpr int TOUCH_CS = 33;
 constexpr int TOUCH_IRQ = 36;
@@ -30,7 +36,7 @@ constexpr int16_t AXIS_CENTER = 16384;
 
 // The robot's speed at full stick. Must match scale_linear.x and
 // scale_angular.yaw in yellow_pad/config/yellow_pad.yaml.
-constexpr int LINEAR_MAX = 300;    // mm/s (0.3 m/s)
+constexpr int LINEAR_MAX = 1500;   // mm/s (1.5 m/s)
 constexpr int ANGULAR_MAX = 1000;  // mrad/s (1.0 rad/s)
 
 constexpr uint32_t LOOP_MS = 20;
@@ -41,8 +47,8 @@ constexpr uint32_t CPU_MHZ = 80;
 constexpr int BACKLIGHT_LEVEL = 128;
 
 enum Dir { UP, DOWN, LEFT, RIGHT, DIR_COUNT, NONE = -1 };
-enum Tab { DRIVE, SETTINGS, TAB_COUNT };
-const char* const TAB_NAMES[TAB_COUNT] = {"Drive", "Settings"};
+enum Tab { DRIVE, ROS, SETTINGS, TAB_COUNT };
+const char* const TAB_NAMES[TAB_COUNT] = {"Drive", "ROS", "Settings"};
 
 constexpr int ACTION_COUNT = 3;
 const char* const ACTION_LABELS[ACTION_COUNT] = {"A", "B", "C"};
@@ -72,10 +78,8 @@ struct Rect {
   bool contains(int px, int py) const { return px >= x && px < x + w && py >= y && py < y + h; }
 };
 
-// Layout for a 320x240 landscape screen: status line, tab bar, page.
-constexpr int STATUS_H = 20;
-const Rect TAB_RECTS[TAB_COUNT] = {{0, 20, 160, 36}, {160, 20, 160, 36}};
-constexpr int PAGE_Y = 58;
+// Tab touch areas, matching the segments drawTabs() draws. Layout constants are in ui.h.
+const Rect TAB_RECTS[TAB_COUNT] = {{0, 20, 107, 36}, {107, 20, 106, 36}, {213, 20, 107, 36}};
 
 // Drive page.
 constexpr int PAD_CX = 92, PAD_CY = 149, KEY = 56, HALF = KEY / 2;
@@ -94,12 +98,8 @@ constexpr int ROW_Y = 60, ROW_H = 30;
 const Rect MINUS_RECT = {0, 182, 158, 58};
 const Rect PLUS_RECT = {162, 182, 158, 58};
 
-constexpr uint16_t COLOR_BG = TFT_BLACK;
-constexpr uint16_t COLOR_KEY = 0x2945;  // dark grey
-constexpr uint16_t COLOR_ACTIVE = TFT_GREEN;
-constexpr uint16_t COLOR_STOP = TFT_RED;
-constexpr uint16_t COLOR_SELECT = TFT_YELLOW;
-constexpr uint16_t COLOR_ADJUST = 0x02DF;  // medium blue
+const uint8_t* const FONT_TEXT = NotoSansBold15;
+const uint8_t* const FONT_NUMBER = NotoSansMonoSCB20;
 
 TFT_eSPI tft;
 SPIClass touchSpi(VSPI);
@@ -118,82 +118,127 @@ bool wasConnected = false;
 
 Rect settingRect(int i) { return {8, static_cast<int16_t>(ROW_Y + i * ROW_H), 304, ROW_H - 2}; }
 
-String formatSetting(const Setting& s) { return String(s.value / 1000.0f, 2) + " " + s.unit; }
+// Loading a font from flash is cheap, so switch freely; this skips reloading the current one.
+void useFont(const uint8_t* font) {
+  static const uint8_t* loaded = nullptr;
+  if (font == loaded) return;
+  if (loaded) tft.unloadFont();
+  tft.loadFont(font);
+  loaded = font;
+}
 
-void drawArrowGlyph(const Rect& r, Dir d, uint16_t color) {
-  int cx = r.x + r.w / 2, cy = r.y + r.h / 2, s = 14;
+void drawText(const String& s, int x, int y, uint8_t datum, uint16_t color, uint16_t bg, const uint8_t* font) {
+  useFont(font);
+  tft.setTextColor(color, bg);
+  tft.setTextDatum(datum);
+  tft.drawString(s, x, y);
+}
+
+int textWidth(const String& s, const uint8_t* font) {
+  useFont(font);
+  return tft.textWidth(s);
+}
+
+// A key is a rounded panel inset from its touch rect, so neighbours have a gap between them.
+void drawKey(const Rect& r, int inset, uint16_t fill) {
+  tft.fillSmoothRoundRect(r.x + inset, r.y + inset, r.w - 2 * inset, r.h - 2 * inset, RADIUS, fill, COLOR_BG);
+}
+
+// A thin chevron pointing in direction d, centred on cx, cy.
+void drawChevron(int cx, int cy, Dir d, uint16_t color, uint16_t bg) {
+  const float s = 8, h = s / 2, w = 3;
+  float tx = cx, ty = cy, ax = cx, ay = cy, bx = cx, by = cy;  // tip and the two arm ends
   switch (d) {
-    case UP: tft.fillTriangle(cx, cy - s, cx - s, cy + s, cx + s, cy + s, color); break;
-    case DOWN: tft.fillTriangle(cx, cy + s, cx - s, cy - s, cx + s, cy - s, color); break;
-    case LEFT: tft.fillTriangle(cx - s, cy, cx + s, cy - s, cx + s, cy + s, color); break;
-    case RIGHT: tft.fillTriangle(cx + s, cy, cx - s, cy - s, cx - s, cy + s, color); break;
-    default: break;
+    case UP: ty -= h; ay = by = cy + h; ax -= s; bx += s; break;
+    case DOWN: ty += h; ay = by = cy - h; ax -= s; bx += s; break;
+    case LEFT: tx -= h; ax = bx = cx + h; ay -= s; by += s; break;
+    case RIGHT: tx += h; ax = bx = cx - h; ay -= s; by += s; break;
+    default: return;
   }
+  tft.drawWideLine(ax, ay, tx, ty, w, color, bg);
+  tft.drawWideLine(tx, ty, bx, by, w, color, bg);
 }
 
 void drawArrow(Dir d) {
   const Rect& r = ARROW_RECTS[d];
   bool on = active == d;
-  tft.fillRoundRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4, 8, on ? COLOR_ACTIVE : COLOR_KEY);
-  drawArrowGlyph(r, d, on ? TFT_BLACK : TFT_WHITE);
+  uint16_t fill = on ? COLOR_ACCENT : COLOR_SURFACE;
+  drawKey(r, 3, fill);
+  drawChevron(r.x + r.w / 2, r.y + r.h / 2, d, on ? COLOR_BG : COLOR_TEXT, fill);
 }
 
+// A red ring with STOP inside; filled red while touched.
 void drawStop() {
   const Rect& r = STOP_RECT;
-  tft.fillRoundRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4, 8, stopHeld ? TFT_WHITE : COLOR_STOP);
-  tft.setTextColor(stopHeld ? COLOR_STOP : TFT_WHITE);
-  tft.setTextDatum(MC_DATUM);
-  tft.drawString("STOP", r.x + r.w / 2, r.y + r.h / 2, 2);
+  int cx = r.x + r.w / 2, cy = r.y + r.h / 2, rad = r.w / 2 - 3;
+  tft.fillSmoothCircle(cx, cy, rad, COLOR_STOP, COLOR_BG);
+  if (!stopHeld) tft.fillSmoothCircle(cx, cy, rad - 2, COLOR_BG, COLOR_STOP);
+  drawText("STOP", cx, cy, MC_DATUM, stopHeld ? COLOR_BG : COLOR_STOP, stopHeld ? COLOR_STOP : COLOR_BG);
 }
 
 void drawAction(int i) {
   const Rect& r = ACTION_RECTS[i];
   bool on = actionHeld == i;
-  tft.fillRoundRect(r.x, r.y, r.w, r.h, 8, on ? COLOR_ACTIVE : COLOR_KEY);
-  tft.setTextColor(on ? TFT_BLACK : TFT_WHITE);
-  tft.setTextDatum(MC_DATUM);
-  tft.drawString(ACTION_LABELS[i], r.x + r.w / 2, r.y + r.h / 2, 4);
+  uint16_t fill = on ? COLOR_ACCENT : COLOR_SURFACE;
+  drawKey(r, 2, fill);
+  drawText(ACTION_LABELS[i], r.x + r.w / 2, r.y + r.h / 2, MC_DATUM, on ? COLOR_BG : COLOR_TEXT, fill, FONT_NUMBER);
 }
 
+// Label on the left; value (monospaced) and unit on the right. The selected row sits on a
+// panel with an accent bar.
 void drawSettingRow(int i) {
+  const Setting& s = settings[i];
   Rect r = settingRect(i);
   bool sel = selected == i;
-  tft.fillRect(r.x, r.y, r.w, r.h, sel ? COLOR_SELECT : COLOR_BG);
-  tft.setTextColor(sel ? TFT_BLACK : TFT_WHITE);
-  tft.setTextDatum(ML_DATUM);
-  tft.drawString(settings[i].label, r.x + 6, r.y + r.h / 2, 4);
-  tft.setTextDatum(MR_DATUM);
-  tft.drawString(formatSetting(settings[i]), r.x + r.w - 6, r.y + r.h / 2, 4);
+  uint16_t bg = sel ? COLOR_SURFACE : COLOR_BG;
+  tft.fillRect(r.x, r.y, r.w, r.h, COLOR_BG);
+  if (sel) {
+    tft.fillSmoothRoundRect(r.x, r.y, r.w, r.h, 8, COLOR_SURFACE, COLOR_BG);
+    tft.fillSmoothRoundRect(r.x + 6, r.y + 7, 3, r.h - 14, 1, COLOR_ACCENT, COLOR_SURFACE);
+  }
+  int cy = r.y + r.h / 2;
+  drawText(s.label, r.x + 18, cy, ML_DATUM, sel ? COLOR_TEXT : COLOR_DIM, bg);
+  int right = r.x + r.w - 12;
+  drawText(s.unit, right, cy, MR_DATUM, COLOR_DIM, bg);
+  drawText(String(s.value / 1000.0f, 2), right - textWidth(s.unit) - 6, cy, MR_DATUM,
+           sel ? COLOR_ACCENT : COLOR_TEXT, bg, FONT_NUMBER);
 }
 
-// Draws - (sign -1) or + (sign +1) as thick bars; the font's minus is too small.
+// - (sign -1) or + (sign +1), drawn as anti-aliased strokes.
 void drawAdjust(int sign) {
   const Rect& r = sign < 0 ? MINUS_RECT : PLUS_RECT;
   bool on = adjustHeld == sign;
-  uint16_t glyph = on ? TFT_BLACK : TFT_WHITE;
-  int cx = r.x + r.w / 2, cy = r.y + r.h / 2, len = 30, thick = 8;
-  tft.fillRoundRect(r.x, r.y, r.w, r.h, 8, on ? COLOR_ACTIVE : COLOR_ADJUST);
-  tft.fillRect(cx - len / 2, cy - thick / 2, len, thick, glyph);
-  if (sign > 0) tft.fillRect(cx - thick / 2, cy - len / 2, thick, len, glyph);
+  uint16_t fill = on ? COLOR_ACCENT : COLOR_SURFACE, glyph = on ? COLOR_BG : COLOR_TEXT;
+  // The touch rects run to the screen edges; keep the drawn keys 8 px in from them.
+  int x = r.x + (sign < 0 ? 8 : 4), y = r.y + 6, w = r.w - 12, h = r.h - 12;
+  tft.fillSmoothRoundRect(x, y, w, h, RADIUS, fill, COLOR_BG);
+  int cx = x + w / 2, cy = y + h / 2, half = 9;
+  tft.drawWideLine(cx - half, cy, cx + half, cy, 3, glyph, fill);
+  if (sign > 0) tft.drawWideLine(cx, cy - half, cx, cy + half, 3, glyph, fill);
 }
 
+// Name on the left; connection dot and state on the right.
 void drawStatus(bool connected) {
+  int cy = STATUS_H / 2 + 2;
   tft.fillRect(0, 0, 320, STATUS_H, COLOR_BG);
-  tft.fillCircle(10, STATUS_H / 2, 5, connected ? TFT_GREEN : TFT_DARKGREY);
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextDatum(ML_DATUM);
-  tft.drawString(connected ? "Connected" : "Waiting for Bluetooth", 22, STATUS_H / 2, 2);
+  drawText("Yellow Pad", 12, cy, ML_DATUM, COLOR_DIM, COLOR_BG);
+  const char* state = connected ? "Connected" : "Waiting for Bluetooth";
+  drawText(state, 308, cy, MR_DATUM, connected ? COLOR_TEXT : COLOR_DIM, COLOR_BG);
+  tft.fillSmoothCircle(308 - textWidth(state) - 10, cy, 3, connected ? COLOR_ACCENT : COLOR_DIM, COLOR_BG);
 }
 
+// A segmented control: one rounded track with the selected tab raised inside it.
 void drawTabs() {
+  constexpr int TRACK_X = 8, TRACK_Y = 25, TRACK_W = 304, TRACK_H = 28;
+  tft.fillRect(0, STATUS_H, 320, PAGE_Y - STATUS_H, COLOR_BG);
+  tft.fillSmoothRoundRect(TRACK_X, TRACK_Y, TRACK_W, TRACK_H, TRACK_H / 2, COLOR_SURFACE, COLOR_BG);
+  int segW = (TRACK_W - 6) / TAB_COUNT;
   for (int t = 0; t < TAB_COUNT; t++) {
-    const Rect& r = TAB_RECTS[t];
     bool on = tab == t;
-    tft.fillRect(r.x, r.y, r.w, r.h, on ? COLOR_KEY : COLOR_BG);
-    if (on) tft.fillRect(r.x, r.y + r.h - 3, r.w, 3, COLOR_SELECT);
-    tft.setTextColor(on ? TFT_WHITE : TFT_DARKGREY);
-    tft.setTextDatum(MC_DATUM);
-    tft.drawString(TAB_NAMES[t], r.x + r.w / 2, r.y + r.h / 2 - 1, 4);
+    int x = TRACK_X + 3 + t * segW;
+    if (on) tft.fillSmoothRoundRect(x, TRACK_Y + 3, segW, TRACK_H - 6, (TRACK_H - 6) / 2, COLOR_RAISED, COLOR_SURFACE);
+    drawText(TAB_NAMES[t], x + segW / 2, TRACK_Y + TRACK_H / 2, MC_DATUM, on ? COLOR_TEXT : COLOR_DIM,
+             on ? COLOR_RAISED : COLOR_SURFACE);
   }
 }
 
@@ -203,6 +248,8 @@ void drawPage() {
     for (int d = 0; d < DIR_COUNT; d++) drawArrow(static_cast<Dir>(d));
     drawStop();
     for (int i = 0; i < ACTION_COUNT; i++) drawAction(i);
+  } else if (tab == ROS) {
+    rosTabDraw();
   } else {
     for (int i = 0; i < SETTING_COUNT; i++) drawSettingRow(i);
     drawAdjust(-1);
@@ -280,7 +327,10 @@ void setStopHeld(bool held) {
 
 void selectTab(Tab t) {
   if (t == tab) return;
+  // Wi-Fi runs only while the ROS tab is open, so driving never shares the radio with it.
+  if (tab == ROS) rosTabStop();
   tab = t;
+  if (tab == ROS) rosTabStart();
   drawTabs();
   drawPage();
 }
@@ -354,6 +404,7 @@ void handleTouch() {
   for (int t = 0; t < TAB_COUNT; t++) {
     if (TAB_RECTS[t].contains(x, y)) selectTab(static_cast<Tab>(t));
   }
+  if (tab == ROS && y >= PAGE_Y) rosTabTouch(x, y);
   if (tab != SETTINGS) return;
   for (int i = 0; i < SETTING_COUNT; i++) {
     if (settingRect(i).contains(x, y)) selectSetting(i);
@@ -398,5 +449,6 @@ void loop() {
     if (connected) sendGamepad();  // start the host from a centered, disabled state
   }
   handleTouch();
+  if (tab == ROS) rosTabLoop();
   delay(LOOP_MS);
 }

@@ -3,3 +3,6 @@ firmware/.pio/
 
 # macOS
 .DS_Store
+
+# Wi-Fi credentials and robot address
+firmware/src/secrets.h

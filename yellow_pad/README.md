@@ -37,5 +37,5 @@ Arguments:
 | Any arrow held | button 0 | enable (dead-man) button |
 
 Speed is set per direction on the pad's screen as a fraction of the scales in
-`config/yellow_pad.yaml` (0.3 m/s and 1.0 rad/s at 100%). If the robot expects
+`config/yellow_pad.yaml` (1.5 m/s and 1.0 rad/s at 100%). If the robot expects
 `TwistStamped`, set `publish_stamped_twist: true` there.

@@ -134,13 +134,31 @@ There are two designs; both send the same gamepad reports for the arrows.
 - **Drive:** the cross of four arrows with a red STOP in the middle, and three
   buttons **A**, **B**, **C** on the right. Holding A/B/C holds gamepad
   buttons 2/3/4. Nothing on the Pi uses those yet.
+- **ROS:** a topic monitor (`src/ros_tab.cpp`), fed by rosbridge on the robot's
+  Pi over Wi-Fi. **Wi-Fi is on only while this tab is open**, so driving never
+  shares the radio with it; opening the tab takes a few seconds to connect.
+  - Needs `src/secrets.h` (git-ignored, copy `secrets.h.sample`): `WIFI_SSID`,
+    `WIFI_PASSWORD`, `ROSBRIDGE_HOST` (an IP; `.local` names aren't resolved),
+    optional `ROSBRIDGE_PORT` (9090). On the Pi:
+    `sudo apt install ros-kilted-rosbridge-suite`, then
+    `ros2 launch rosbridge_server rosbridge_websocket_launch.xml`.
+  - Top: connection state and topic counts. Then `/cmd_vel` (linear and angular
+    values) and `/battery_state` (volts and %, or a plain number as volts),
+    dimmed when older than 5 s. Topic names are `CMD_VEL_TOPIC` and
+    `BATTERY_TOPIC` in `ros_tab.cpp`.
+  - Middle: topics by activity, 4 per page with their rates; tap the list for
+    the next page. Images, point clouds, maps, laser scans and TF are listed as
+    "skip" rather than streamed (`HEAVY_TYPES`).
+  - Bottom: the last two `/rosout` lines, amber for warnings, red for errors.
+  - While rosbridge is unreachable, each retry (every 3 s) can freeze touch for
+    up to 1.5 s (`WEBSOCKETS_TCP_TIMEOUT` in `platformio.ini`).
 - **Settings:** speeds per direction in real units: Forward and Back in m/s
   (step 0.05, default 0.15), Left and Right in rad/s (step 0.10, default 0.50).
   Tap a row, then **−** / **+**. Saved in flash (NVS, namespace `yellowpad2`).
   New settings go in the `settings[]` table in `main.cpp`. Four rows fill the
   page, so a fifth setting will need paging or scrolling.
 - The pad converts a speed to a stick value by dividing by the robot's
-  full-stick speed, `LINEAR_MAX` (0.3 m/s) and `ANGULAR_MAX` (1.0 rad/s) in
+  full-stick speed, `LINEAR_MAX` (1.5 m/s) and `ANGULAR_MAX` (1.0 rad/s) in
   `main.cpp`. **These must match `scale_linear.x` and `scale_angular.yaw` in
   `config/yellow_pad.yaml`**; if the YAML changes, change them too, or the
   displayed m/s will be wrong. The maximum speed is still capped by the YAML.
@@ -158,8 +176,8 @@ There are two designs; both send the same gamepad reports for the arrows.
 
 | Pad | Gamepad | ROS `/joy` | `/cmd_vel` |
 |---|---|---|---|
-| Up / Forward held | left stick Y up by that speed | `axes[1]` = +speed | `linear.x` = +speed × 0.3 |
-| Down / Back held | left stick Y down | `axes[1]` = −speed | `linear.x` = −speed × 0.3 |
+| Up / Forward held | left stick Y up by that speed | `axes[1]` = +speed | `linear.x` = +speed × 1.5 |
+| Down / Back held | left stick Y down | `axes[1]` = −speed | `linear.x` = −speed × 1.5 |
 | Left held | left stick X left | `axes[0]` = +speed | `angular.z` = +speed × 1.0 |
 | Right held | left stick X right | `axes[0]` = −speed | `angular.z` = −speed × 1.0 |
 | Any arrow held | button 1 pressed | `buttons[0]` = 1 | enables motion |
@@ -169,7 +187,7 @@ There are two designs; both send the same gamepad reports for the arrows.
 Here "speed" is the stick fraction, 0 to 1: the percentage in the first
 design, or the set m/s or rad/s divided by the full-stick speed in the tabbed
 design. The full-stick speeds live on the Pi in `config/yellow_pad.yaml`
-(`scale_linear.x` = 0.3 m/s, `scale_angular.yaw` = 1.0 rad/s), so the top
+(`scale_linear.x` = 1.5 m/s, `scale_angular.yaw` = 1.0 rad/s), so the top
 speed is set in the robot's config, not on the pad.
 
 **Safety:** `teleop_twist_joy` only publishes motion while button 0 is held
