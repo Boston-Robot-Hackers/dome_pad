@@ -30,6 +30,10 @@ constexpr uint32_t ACTIVE_MS = 3000;   // a topic counts as active if it publish
 constexpr uint32_t THROTTLE_MS = 50;   // rosbridge sends at most 20 messages/s per topic
 constexpr uint32_t REDRAW_MS = 500;
 constexpr uint32_t RECONNECT_MS = 3000;
+// Closing the tab waits this long after the WebSocket close before turning Wi-Fi off. Without
+// it rosbridge never sees the close and keeps streaming to a dead socket; its pings (see
+// launch/remote.launch.py) are the backstop for sleeps and resets.
+constexpr uint32_t CLOSE_FLUSH_MS = 100;
 
 // Layout.
 constexpr int ROW_Y = PAGE_Y + 8, ROW_H = 26;
@@ -216,7 +220,10 @@ void rosTabStart() {
 }
 
 void rosTabStop() {
-  if (wsBegun) ws.disconnect();
+  if (wsBegun && connected) {
+    ws.disconnect();
+    delay(CLOSE_FLUSH_MS);  // let the close frame leave before Wi-Fi goes off
+  }
   connected = false;
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);

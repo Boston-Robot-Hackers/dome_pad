@@ -165,6 +165,13 @@ The firmware is `src/main.cpp`, env `cyd`:
     light topic to count its rate, which overran rosbridge's queue for the
     pad ("write queue full" on the VM) on 2026-11-22. `/scan` is a few KB of
     JSON per message; the pad parses only the envelope.
+  - **Dead connections.** The warning kept coming after that fix: rosbridge
+    listed two connections from the pad's address, one stale. The pad
+    turned Wi-Fi off right after closing the socket (and sleeps or resets
+    without closing it), and rosbridge's default `websocket_ping_interval`
+    of 0 never drops a dead client. Fixed both ends: the pad waits 100 ms
+    after the close, and `remote.launch.py` turns pings on (10 s, 30 s
+    timeout).
   - While rosbridge is unreachable, each retry (every 3 s) can freeze touch for
     up to 1.5 s (`WEBSOCKETS_TCP_TIMEOUT` in `platformio.ini`).
 - **Settings:** speeds per direction in real units: Forward and Back in m/s
