@@ -8,8 +8,9 @@ firmware, plus the ROS 2 package that connects it to the robot.
 
 - **Firmware** (`firmware/`): a BLE gamepad with Drive, ROS and Settings
   tabs. Drive sends stick values with button 0 held as the dead-man button;
-  A, B and C are buttons 1-3 on `/joy`. The ROS tab is a topic monitor fed
-  by rosbridge over Wi-Fi. Power saving: dimming, deep sleep, runtime
+  A, B and C are buttons 1-3 on `/joy`. The ROS tab shows the publish rates
+  of a few fixed topics (now `/odom` and `/scan`), fed by rosbridge over
+  Wi-Fi; nothing else is subscribed. Power saving: dimming, deep sleep, runtime
   tracking.
 - **Robot side** (`launch/robot.launch.py`, dome2's `pad` subsystem):
   `joy_node` and `teleop_twist_joy`, publishing `/cmd_vel` only while the

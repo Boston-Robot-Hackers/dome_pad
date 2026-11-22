@@ -134,12 +134,17 @@ dome_voice running on both: `vo` in both dome2 launches.
 
 The firmware is `src/main.cpp`, env `cyd`:
 
-- **Top:** Bluetooth status, then three tabs, **Drive**, **ROS** and
-  **Settings**.
+- **Top:** the status bar, then three tabs, **Drive**, **ROS** and
+  **Settings**. The status bar has the runtime on the left (see "Runtime
+  tracking") and two indicators on the right:
+  - **BT:** teal when connected to the Pi, grey while waiting.
+  - **WiFi:** grey when off (the ROS tab is closed), amber while joining
+    Wi-Fi or connecting to rosbridge, teal when connected to rosbridge, red
+    when `secrets.h` lacks `WIFI_SSID` or `ROSBRIDGE_HOST`.
 - **Drive:** the cross of four arrows with a red STOP in the middle, and three
   buttons **A**, **B**, **C** on the right. Holding A/B/C holds gamepad
   buttons 2/3/4 (see "Buttons A, B, C" above).
-- **ROS:** a topic monitor (`src/ros_tab.cpp`), fed by rosbridge on the
+- **ROS:** publish rates of a few topics (`src/ros_tab.cpp`), fed by rosbridge on the
   remote computer (the VM) over Wi-Fi. **Wi-Fi is on only while this tab is
   open**, so driving never shares the radio with it; opening the tab takes a
   few seconds to connect.
@@ -149,14 +154,17 @@ The firmware is `src/main.cpp`, env `cyd`:
     (9090). rosbridge is started by `bl dome_pad remote.launch.py` (needs
     `ros-kilted-rosbridge-suite` on the VM). If DHCP moves the VM, update
     `secrets.h` and reflash.
-  - Top: connection state and topic counts. Then `/cmd_vel` (linear and angular
-    values) and `/battery_state` (volts and %, or a plain number as volts),
-    dimmed when older than 5 s. Topic names are `CMD_VEL_TOPIC` and
-    `BATTERY_TOPIC` in `ros_tab.cpp`.
-  - Middle: topics by activity, 4 per page with their rates; tap the list for
-    the next page. Images, point clouds, maps, laser scans and TF are listed as
-    "skip" rather than streamed (`HEAVY_TYPES`).
-  - Bottom: the last two `/rosout` lines, amber for warnings, red for errors.
+  - The connection state is the status bar's WiFi indicator; the page has no
+    header of its own.
+  - One row per topic in `topics[]` in `ros_tab.cpp`: now `/odom`
+    and `/scan`, as placeholders. Each shows its rate (capped at "20+ Hz": the
+    pad asks rosbridge for at most one message per topic every 50 ms), "-" if
+    it hasn't published in 3 s, or "not published" if it isn't in rosapi's
+    topic list. Green dot = active, amber = seen earlier, grey = never.
+  - **Only these topics are subscribed.** An earlier version streamed every
+    light topic to count its rate, which overran rosbridge's queue for the
+    pad ("write queue full" on the VM) on 2026-11-22. `/scan` is a few KB of
+    JSON per message; the pad parses only the envelope.
   - While rosbridge is unreachable, each retry (every 3 s) can freeze touch for
     up to 1.5 s (`WEBSOCKETS_TCP_TIMEOUT` in `platformio.ini`).
 - **Settings:** speeds per direction in real units: Forward and Back in m/s

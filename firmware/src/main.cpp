@@ -160,6 +160,7 @@ bool holdingStatus = false;
 bool holdDone = false;
 uint32_t holdStartMs = 0;
 String shownRuntime;
+RosLink shownLink = RosLink::OFF;
 
 Rect settingRect(int i) { return {8, static_cast<int16_t>(ROW_Y + i * ROW_H), 304, ROW_H - 2}; }
 
@@ -296,16 +297,36 @@ String runtimeText() {
   return "Run " + formatHM(sinceChargeMin());
 }
 
-// Runtime on the left (amber if a brownout was seen since charge); connection dot
-// and state on the right.
+// Wi-Fi indicator colour: grey off, amber joining Wi-Fi or connecting to rosbridge,
+// teal connected to rosbridge, red when secrets.h is missing the Wi-Fi or rosbridge settings.
+uint16_t wifiColor(RosLink link) {
+  switch (link) {
+    case RosLink::ONLINE: return COLOR_ACCENT;
+    case RosLink::JOINING:
+    case RosLink::CONNECTING: return COLOR_WARN;
+    case RosLink::UNCONFIGURED: return COLOR_STOP;
+    default: return COLOR_DIM;
+  }
+}
+
+// A dot and label ending at right; returns the x where the dot starts.
+int drawIndicator(const char* label, uint16_t color, int right, int cy) {
+  drawText(label, right, cy, MR_DATUM, color == COLOR_DIM ? COLOR_DIM : COLOR_TEXT, COLOR_BG);
+  int dotX = right - textWidth(label) - 10;
+  tft.fillSmoothCircle(dotX, cy, 3, color, COLOR_BG);
+  return dotX - 3;
+}
+
+// Runtime on the left (amber if a brownout was seen since charge); Bluetooth and Wi-Fi
+// indicators on the right.
 void drawStatus(bool connected) {
   int cy = STATUS_H / 2 + 2;
   tft.fillRect(0, 0, 320, STATUS_H, COLOR_BG);
   shownRuntime = runtimeText();
   drawText(shownRuntime, 12, cy, ML_DATUM, brownoutSeen ? COLOR_WARN : COLOR_DIM, COLOR_BG);
-  const char* state = connected ? "Connected" : "Waiting for Bluetooth";
-  drawText(state, 308, cy, MR_DATUM, connected ? COLOR_TEXT : COLOR_DIM, COLOR_BG);
-  tft.fillSmoothCircle(308 - textWidth(state) - 10, cy, 3, connected ? COLOR_ACCENT : COLOR_DIM, COLOR_BG);
+  shownLink = rosTabLink();
+  int x = drawIndicator("WiFi", wifiColor(shownLink), 308, cy);
+  drawIndicator("BT", connected ? COLOR_ACCENT : COLOR_DIM, x - 14, cy);
 }
 
 // A segmented control: one rounded track with the selected tab raised inside it.
@@ -614,7 +635,6 @@ void handleTouch() {
   for (int t = 0; t < TAB_COUNT; t++) {
     if (TAB_RECTS[t].contains(x, y)) selectTab(static_cast<Tab>(t));
   }
-  if (tab == ROS && y >= PAGE_Y) rosTabTouch(x, y);
   if (tab != SETTINGS) return;
   for (int i = 0; i < SETTING_COUNT; i++) {
     if (settingRect(i).contains(x, y)) selectSetting(i);
@@ -669,6 +689,6 @@ void loop() {
   dimIfIdle();
   sleepIfIdle();
   saveRuntimeIfDue();
-  if (runtimeText() != shownRuntime) drawStatus(connected);
+  if (runtimeText() != shownRuntime || rosTabLink() != shownLink) drawStatus(connected);
   delay(LOOP_MS);
 }

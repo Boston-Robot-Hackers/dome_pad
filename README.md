@@ -31,8 +31,8 @@ Three tabs:
 - **Drive:** four arrows and STOP. Holding an arrow drives at that
   direction's speed with the dead-man button held; letting go stops. A, B
   and C are gamepad buttons 2-4.
-- **ROS:** topics and rates, `/cmd_vel`, the battery and `/rosout`, through
-  rosbridge on the VM. Wi-Fi is on only while this tab is open.
+- **ROS:** the publish rates of `/odom` and `/scan` (placeholders for now),
+  through rosbridge on the VM. Wi-Fi is on only while this tab is open.
 - **Settings:** speed for each direction, in m/s and rad/s.
 
 ## Buttons
