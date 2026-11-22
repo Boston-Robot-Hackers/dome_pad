@@ -17,8 +17,15 @@ is committed and pushed.
   indicators in the status bar.
 - **Launch:** Pi `bl dome2 robot.launch.py --options "d c vo p"`, VM
   `bl dome2 remote.launch.py --options "vo p"`.
-- **Next for the pad:** nothing in progress. The speech delay after a key
-  press is dome_voice's F15 (start there; see its `current.md`).
+- **Next for the pad: diagnose I01 (Bluetooth drops) on the Pi.** It needs
+  the Pi, so it's the first dome_pad task there. While using the pad, run
+  `sudo btmon | grep -A3 "Disconnect Complete"`; when it drops, read the
+  reason code and match it to I01's theories (0x08 = radio timeout, 0x13 =
+  the pad ended it, no event before a reconnect = the pad rebooted). Note
+  what was running (vision, Foxglove, the ROS tab open). Record the result
+  in I01.
+- The speech delay after a key press is dome_voice's F15, not dome_pad
+  (see its `current.md`).
 
 ### Firmware is built on the Mac only
 
