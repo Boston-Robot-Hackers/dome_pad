@@ -16,9 +16,10 @@ firmware, plus the ROS 2 package that connects it to the robot.
   `joy_node` and `teleop_twist_joy`, publishing `/cmd_vel` only while the
   dead-man button is held. **Driving never depends on the remote computer.**
 - **Remote side** (`launch/remote.launch.py`, dome2's remote `pad`
-  subsystem): rosbridge for the ROS tab, and `pad_buttons`, which publishes
-  a text on `/voice/llm_text` once per press of a mapped button. dome_voice's
-  `llm_node` answers it and the robot speaks the reply.
+  subsystem): rosbridge for the ROS tab, and `pad_buttons`, which acts once
+  per press of a mapped button: a question on `/voice/llm_text` for
+  dome_voice's `llm_node` (conversational keys), or an intent on `/intent`
+  for dome_control (command keys, which skip the LLM).
 
 ## Button map
 
@@ -26,7 +27,7 @@ firmware, plus the ROS 2 package that connects it to the robot.
 |---|---|---|
 | 0 | any arrow | dead-man button; never mapped |
 | 1 | Joke | "Tell me a robot joke." to the LLM |
-| 2 | Status | "What's your status?" to the LLM, which publishes a `get_status` intent; dome_control answers it |
+| 2 | Status | `get_status` intent straight to `/intent` (no LLM); dome_control answers it |
 | 3 | C | unassigned |
 
 ## Out of scope
@@ -41,3 +42,4 @@ firmware, plus the ROS 2 package that connects it to the robot.
 | `/joy` | `sensor_msgs/Joy` | joy_node → teleop, pad_buttons |
 | `/cmd_vel` | `geometry_msgs/Twist` | teleop → base |
 | `/voice/llm_text` | `std_msgs/String` | pad_buttons → llm_node |
+| `/intent` | `std_msgs/String` (intent JSON) | pad_buttons → dome_control |

@@ -122,22 +122,29 @@ Yellow Pad ──BLE gamepad──▶ Pi: /dev/input/js0
 
 ### The action keys: Joke, Status, C
 
-`pad_buttons` (on the VM) watches `/joy` and, for each press of a mapped
-button, publishes its text on `/voice/llm_text` once. Holding a button sends
-nothing more. The table is `BUTTON_TEXTS` in `dome_pad/pad_buttons.py`:
-**Joke** (`/joy` button 1) asks for a robot joke; **Status** (button 2) asks
-"What's your status?"; **C** (button 3) is unassigned. The labels are
-`ACTION_LABELS` in `main.cpp`; they were A, B and C until 2026-11-22.
+`pad_buttons` (on the VM) watches `/joy` and acts once on each press of a
+mapped button; holding a button sends nothing more. The table is
+`BUTTON_ACTIONS` in `dome_pad/pad_buttons.py`, with two kinds of action:
+`LlmText` (a question on `/voice/llm_text`) and `Intent` (JSON straight to
+`/intent`, source `pad`). The labels are `ACTION_LABELS` in `main.cpp`; they
+were A, B and C until 2026-11-22.
 
-**Status needs dome_control on the robot.** The LLM answers a status
-question by calling its `get_status` tool, which publishes a `get_status`
-intent on `/intent` and replies with nothing: dome_control's
-`motion_behavior` says the answer ("linear speed …, angular speed …").
-Without the `control` subsystem (`c`) running on the Pi, pressing Status is
-silent. Run the Pi with `--options "d c vo p"` for it. dome_voice's
-`llm_node` (VM) asks Claude, `voice_input` (Pi) relays the reply to
-`/announcement`, and `speech_output` (Pi) says it. So the joke needs
-dome_voice running on both: `vo` in both dome2 launches.
+- **Joke** (`/joy` button 1): `LlmText("Tell me a robot joke.")`.
+  dome_voice's `llm_node` (VM) asks Claude, `voice_input` (Pi) relays the
+  reply to `/announcement`, and `speech_output` (Pi) says it. So it needs
+  `vo` in both dome2 launches.
+- **Status** (button 2): `Intent("get_status")`. dome_control's
+  `motion_behavior` says "linear speed …, angular speed …", so it needs the
+  `control` subsystem on the Pi: `--options "d c vo p"`.
+- **C** (button 3): unassigned.
+
+**Why Status skips the LLM.** It first sent "What's your status?" to the
+LLM, which calls `get_status`. That worked once, but the LLM never sees
+dome_control's spoken answer (its tool result is just "Sent to the
+robot."). After a few identical questions in one conversation, Claude
+decided the robot wasn't replying, stopped sending the intent, and said so
+instead (2026-11-22). Commands go straight to `/intent`; only conversational
+buttons go through the LLM.
 
 ### The screen (landscape, 320x240)
 
@@ -422,7 +429,8 @@ board may use an ST7789 instead: replace `-DILI9341_2_DRIVER=1` with
 
 ## Changing the ROS side
 
-- **What a button does:** `BUTTON_TEXTS` in `dome_pad/pad_buttons.py`, keyed
+- **What a button does:** `BUTTON_ACTIONS` in `dome_pad/pad_buttons.py`
+  (`LlmText` for a question, `Intent` for a command), keyed
   by `/joy` button index (Joke = 1, Status = 2, C = 3; never 0, the dead-man
   button). The key labels are `ACTION_LABELS` in `main.cpp`.
 - **Top speeds:** `scale_linear.x` and `scale_angular.yaw` in

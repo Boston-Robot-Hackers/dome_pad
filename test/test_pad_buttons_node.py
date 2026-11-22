@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # test_pad_buttons_node — the node publishes each press on /voice/llm_text
 # Author: Pito Salas and Claude Code
-# Version: 1
+# Version: 2
 # Created: 2026-11-22
 # Updated: 2026-11-22
 # Open Source Under MIT license
@@ -15,11 +15,12 @@ from conftest import HAS_REAL_ROS
 from rclpy.executors import ExternalShutdownException
 
 from dome_pad import pad_buttons_node
-from dome_pad.pad_buttons import BUTTON_TEXTS
+from dome_pad.pad_buttons import BUTTON_ACTIONS
 
 pytestmark = pytest.mark.skipif(HAS_REAL_ROS, reason="needs conftest's fake rclpy")
 
-A_DOWN = [0, 1, 0, 0]
+JOKE_DOWN = [0, 1, 0, 0]
+STATUS_DOWN = [0, 0, 1, 0]
 
 
 @pytest.fixture
@@ -32,18 +33,28 @@ def send_joy(node, buttons: list[int]) -> None:
     node.callbacks_by_topic["/joy"](joy)
 
 
-def test_press_publishes_its_text_once(node):
-    send_joy(node, A_DOWN)
-    send_joy(node, A_DOWN)
+def test_joke_press_publishes_its_text_once(node):
+    send_joy(node, JOKE_DOWN)
+    send_joy(node, JOKE_DOWN)
     publisher = node.publishers_by_topic["/voice/llm_text"]
     publisher.publish.assert_called_once_with(
-        pad_buttons_node.String(data=BUTTON_TEXTS[1])
+        pad_buttons_node.String(data=BUTTON_ACTIONS[1].text)
     )
+    node.publishers_by_topic["/intent"].publish.assert_not_called()
+
+
+def test_status_press_publishes_the_intent_not_llm_text(node):
+    send_joy(node, STATUS_DOWN)
+    node.publishers_by_topic["/intent"].publish.assert_called_once_with(
+        pad_buttons_node.String(data=BUTTON_ACTIONS[2].to_json())
+    )
+    node.publishers_by_topic["/voice/llm_text"].publish.assert_not_called()
 
 
 def test_no_press_publishes_nothing(node):
     send_joy(node, [1, 0, 0, 0])
     node.publishers_by_topic["/voice/llm_text"].publish.assert_not_called()
+    node.publishers_by_topic["/intent"].publish.assert_not_called()
 
 
 @pytest.mark.parametrize("stop", [ExternalShutdownException, KeyboardInterrupt])

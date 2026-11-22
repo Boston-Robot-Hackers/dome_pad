@@ -37,14 +37,16 @@ Three tabs:
 
 ## Buttons
 
-`pad_buttons` on the VM sends a text to dome_voice's `llm_node` for each
-press. The table is `BUTTON_TEXTS` in `dome_pad/pad_buttons.py`.
+`pad_buttons` on the VM turns each press into an action: a question for
+dome_voice's `llm_node` (`/voice/llm_text`), or an intent sent straight to
+`/intent` for dome_control. The table is `BUTTON_ACTIONS` in
+`dome_pad/pad_buttons.py`.
 
 | Pad | `/joy` button | Does |
 |---|---|---|
 | any arrow | 0 | dead-man button for teleop (never mapped) |
 | Joke | 1 | asks Claude for a robot joke; the robot says it |
-| Status | 2 | asks the LLM for the robot's status; it calls `get_status`, and dome_control (the robot's `c` subsystem) says the speeds |
+| Status | 2 | sends the `get_status` intent (no LLM); dome_control, the robot's `c` subsystem, says the speeds |
 | C | 3 | nothing yet |
 
 ## Running
