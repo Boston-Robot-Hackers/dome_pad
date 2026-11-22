@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>dome_pad</name>
+  <version>0.2.0</version>
+  <description>
+    The Yellow Pad, an ESP32 touchscreen BLE gamepad for the DOME robot: its
+    firmware (firmware/, built with PlatformIO, not colcon), joy and
+    teleop_twist_joy for driving on the robot, and rosbridge plus the
+    pad_buttons node on the remote computer.
+  </description>
+  <maintainer email="pitosalas@gmail.com">pitosalas</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>joy</exec_depend>
+  <exec_depend>teleop_twist_joy</exec_depend>
+  <exec_depend>rosbridge_server</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

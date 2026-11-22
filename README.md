@@ -1,61 +1,89 @@
-# Yellow Pad
+# dome_pad
 
-A touchscreen Bluetooth gamepad for driving a ROS 2 robot.
-
-An ESP32 "Cheap Yellow Display" (ESP32-2432S028R) has two tabs: **Drive**,
-with four arrows, STOP and three spare buttons (A/B/C), and **Settings**, with
-a speed for each direction in m/s or rad/s. It pairs with the robot's
-Raspberry Pi as a standard BLE gamepad, and the standard ROS `joy` and
-`teleop_twist_joy` packages turn it into `/cmd_vel`. Holding an arrow drives
-in that direction at its speed; letting go stops the robot.
-
-**Status:** the pad is built, flashed and paired with the Pi, but it hasn't
-driven the robot yet. The `/cmd_vel` test and robot bringup are still open;
-see "Where things stand" in [`NOTES.md`](NOTES.md).
+The Yellow Pad: an ESP32 touchscreen gamepad for the DOME robot. Hold an
+arrow to drive, tap A for a robot joke, and watch the robot's ROS topics on
+the pad's screen.
 
 ```
-Yellow Pad ──BLE──▶ Pi: joy_node ─/joy─▶ teleop_twist_joy ─/cmd_vel─▶ robot
+                  BLE                      DDS (Wi-Fi)
+Yellow Pad ─────────────▶ Pi: joy_node ─/joy─┬─▶ teleop_twist_joy ─/cmd_vel─▶ base
+   ▲                                         │
+   │ Wi-Fi (ROS tab)                         └─▶ VM: pad_buttons ─/voice/llm_text─▶ llm_node
+   └──────────────── VM: rosbridge :9090
 ```
 
 ## What's here
 
-| Directory | What it is |
+| Path | What it is |
 |---|---|
-| [`firmware/`](firmware/) | ESP32 firmware (PlatformIO, Arduino framework) |
-| [`yellow_pad/`](yellow_pad/README.md) | ROS 2 Kilted package: config and launch file for joy + teleop_twist_joy |
-| [`backup/`](backup/README.md) | The board's factory firmware image and how to restore it |
-| [`NOTES.md`](NOTES.md) | Detailed notes: status, how it works, running, changing, troubleshooting |
+| `firmware/` | ESP32 firmware (PlatformIO, Arduino framework). Not built by colcon. |
+| `dome_pad/` | Python: `pad_buttons` (button table, press detection) and its ROS node |
+| `launch/robot.launch.py` | On the Pi: `joy_node` + `teleop_twist_joy` |
+| `launch/remote.launch.py` | On the VM: rosbridge + `pad_buttons` |
+| `config/pad.yaml` | joy and teleop parameters, including the full-stick speeds |
+| `backup/` | The board's factory firmware image and how to restore it |
+| `process/` | DOME process docs; `process/02-doc/notes.md` has the details |
 
-## Quick start
+## The pad
 
-Flash the pad (from the Mac, board on USB):
+Three tabs:
+
+- **Drive:** four arrows and STOP. Holding an arrow drives at that
+  direction's speed with the dead-man button held; letting go stops. A, B
+  and C are gamepad buttons 2-4.
+- **ROS:** topics and rates, `/cmd_vel`, the battery and `/rosout`, through
+  rosbridge on the VM. Wi-Fi is on only while this tab is open.
+- **Settings:** speed for each direction, in m/s and rad/s.
+
+## Buttons
+
+`pad_buttons` on the VM sends a text to dome_voice's `llm_node` for each
+press. The table is `BUTTON_TEXTS` in `dome_pad/pad_buttons.py`.
+
+| Pad | `/joy` button | Does |
+|---|---|---|
+| any arrow | 0 | dead-man button for teleop (never mapped) |
+| A | 1 | asks Claude for a robot joke; the robot says it |
+| B, C | 2, 3 | nothing yet |
+
+## Running
+
+```bash
+# Pi (pad paired over Bluetooth)
+bl dome2 robot.launch.py --options "d vo p"
+
+# VM (ANTHROPIC_API_KEY set)
+bl dome2 remote.launch.py --options "vo p"
+```
+
+Each side can also run alone: `bl dome_pad robot.launch.py`,
+`bl dome_pad remote.launch.py`.
+
+## Building
+
+ROS package, on the Pi and the VM:
+
+```bash
+cd ~/ros2_ws
+rosdep install --from-paths src/dome_pad -y
+colcon build --packages-select dome_pad
+```
+
+Firmware, from the Mac with the board on USB:
 
 ```bash
 cd firmware
+cp src/secrets.h.sample src/secrets.h   # once: Wi-Fi and the VM's address
 uvx --from platformio pio run -t upload
 ```
 
-This flashes the tabbed design (`src/main.cpp`). Add `-e cyd_v1` for the
-first, single-screen design (`src/arrows_v1.cpp`).
-
-For power away from USB, use a power bank (one without low-current
-auto-shutoff) or the planned PM11 battery module; see "The hardware" in
-[`NOTES.md`](NOTES.md). Don't wire a bare LiPo cell to the board.
-
-Pair it with the Pi once with `bluetoothctl` (`scan on`, then `pair`, `trust`
-and `connect` the "Yellow Pad" address).
-
-Build and run the ROS package on the Pi:
+## Development
 
 ```bash
-# copy yellow_pad/ to ~/ros2_ws/src/, then
-cd ~/ros2_ws
-rosdep install --from-paths src/yellow_pad -y
-colcon build --packages-select yellow_pad
-source install/setup.bash
-ros2 launch yellow_pad yellow_pad.launch.py
+/usr/bin/python3 -m pytest test/          # Pi or VM
+PYTHONPATH=. uvx pytest test/             # Mac, no ROS needed
 ```
 
-Test with the wheels off the ground first (`ros2 topic echo /cmd_vel`). See
-[`NOTES.md`](NOTES.md) for pairing details, expected values, the speed limits
-and what's still untested.
+## License
+
+MIT — see [LICENSE](LICENSE)

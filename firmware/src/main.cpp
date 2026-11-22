@@ -3,8 +3,7 @@
 // Drive tab: holding an arrow moves the left stick in that direction and holds
 // button 1 (the teleop enable / dead-man button). A, B and C hold buttons 2-4.
 // Releasing stops. Settings tab: per-direction speeds in m/s and rad/s, saved in flash.
-//
-// The first design (arrows + speed panel in %) is in arrows_v1.cpp (env cyd_v1).
+// On the remote computer, dome_pad's pad_buttons node turns A/B/C presses into actions.
 
 #include <Arduino.h>
 #include <BleGamepad.h>
@@ -39,7 +38,7 @@ constexpr int16_t AXIS_MAX = 32767;
 constexpr int16_t AXIS_CENTER = 16384;
 
 // The robot's speed at full stick. Must match scale_linear.x and
-// scale_angular.yaw in yellow_pad/config/yellow_pad.yaml.
+// scale_angular.yaw in config/pad.yaml.
 constexpr int LINEAR_MAX = 1500;   // mm/s (1.5 m/s)
 constexpr int ANGULAR_MAX = 1000;  // mrad/s (1.0 rad/s)
 
@@ -632,7 +631,7 @@ void setup() {
   Serial.begin(115200);
   loadRuntime();
 
-  // Own namespace: the first design stores percentages under the same keys.
+  // Own namespace: an earlier design stored percentages under the same keys.
   prefs.begin("yellowpad2", false);
   for (Setting& s : settings) s.value = constrain(prefs.getInt(s.key, s.fallback), 0, s.max);
 

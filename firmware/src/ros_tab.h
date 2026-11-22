@@ -1,5 +1,5 @@
 #pragma once
-// ROS tab: a topic monitor fed by rosbridge on the robot's Pi, over Wi-Fi.
+// ROS tab: a topic monitor fed by rosbridge on the remote computer (the VM), over Wi-Fi.
 // Wi-Fi is on only while the tab is open; the Drive tab never shares the radio with it.
 // Wi-Fi credentials and the rosbridge address are in secrets.h (see secrets.h.sample).
 

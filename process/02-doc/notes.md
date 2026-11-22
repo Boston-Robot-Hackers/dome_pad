@@ -1,56 +1,40 @@
 # Yellow Pad: project notes
 
-A touchscreen Bluetooth gamepad for driving a ROS 2 robot. An ESP32 "Cheap
+A touchscreen Bluetooth gamepad for driving the DOME robot. An ESP32 "Cheap
 Yellow Display" board shows four arrows and per-direction speed settings, and
 pairs with the robot's Raspberry Pi as a standard BLE gamepad. On the Pi, the
-standard `joy` and `teleop_twist_joy` packages turn it into `/cmd_vel`.
+standard `joy` and `teleop_twist_joy` packages turn it into `/cmd_vel`. On
+the remote computer (the VM), rosbridge feeds the pad's ROS tab and
+`pad_buttons` turns A/B/C presses into LLM requests.
 
-This is its own repo (`Boston-Robot-Hackers/yellow_pad`), also used as a
-submodule of `esp32-c6-demo`. Paths below are relative to the repo root.
+This repo is `Boston-Robot-Hackers/dome_pad`. It was `yellow_pad` (a
+submodule of `esp32-c6-demo`) until 2026-11-22. Paths below are relative to
+the repo root. Status and next steps are in `current.md`, not here.
 
-Last updated 2026-11-10.
+## Known open checks
 
-## Where things stand
+**The pad has driven the robot**: dome2's F05 run E2d (`d y`, with the old
+`yellow_pad.launch.py`) passed, tested by the user. Still open:
 
-Done and working:
-
-- Identified the board and backed up its factory firmware (`backup/`).
-- Wrote, built and flashed the Yellow Pad firmware (`firmware/`).
-- Paired the pad with the Pi (dome-R1); `ros2 run joy joy_enumerate_devices`
-  lists it.
-- Built the ROS package `yellow_pad` on the Pi. (It was copied there as
-  `~/ros2_ws/src/yellow_joy` before the directory was renamed; see
-  "ROS package on the Pi" for replacing it.)
-
-Not done yet:
-
-- **`/cmd_vel` dry test.** Launch the package with the robot's bringup off and
-  check `ros2 topic echo /cmd_vel` against the table under "Testing" below.
-- **Robot bringup.** `bl dome2 robot.launch.py` fails with
-  `Profile 'DEFAULT_PROFILE': no env var 'DEFAULT_PROFILE' found`. That's from
-  dome2's own `robot.launch.py` (line 76): the `profile` launch argument must
-  name an environment variable that is set. Unresolved; check the launch file
-  and `env | grep -i profile`.
-- **Message type.** Not yet checked whether the robot wants `Twist` or
-  `TwistStamped` (`ros2 topic info /cmd_vel`). See "Changing the ROS side".
-- **Possible duplicate joystick nodes.** Check `ros2 node list` with bringup
-  running: if bringup already starts `joy_node` or `teleop_twist_joy_node`,
-  it will clash with this package.
-- **License.** `package.xml` has a `TODO` license.
+- **The exact `/cmd_vel` values** against the table under "Testing" below
+  were never recorded.
+- **Possible duplicate joystick nodes.** Check `ros2 node list` with the
+  other subsystems running: if any already starts `joy_node` or
+  `teleop_twist_joy_node`, it will clash with this package.
 
 ## Layout
 
 ```
-yellow_pad/
-├── NOTES.md          this file
+dome_pad/
+├── firmware/         ESP32 firmware (PlatformIO project; colcon ignores it)
+│   ├── platformio.ini   one env, cyd
+│   └── src/main.cpp     the tabbed design; src/ros_tab.cpp is the ROS tab
+├── dome_pad/         Python: pad_buttons.py (button table) and pad_buttons_node.py
+├── launch/           robot.launch.py (joy + teleop), remote.launch.py (rosbridge + pad_buttons)
+├── config/pad.yaml   joy and teleop parameters
 ├── backup/           factory firmware image + how to restore it (see backup/README.md)
-├── firmware/         ESP32 firmware (PlatformIO project)
-│   ├── platformio.ini   two envs: cyd (tabbed design), cyd_v1 (first design)
-│   └── src/main.cpp     tabbed design; src/arrows_v1.cpp is the first design
-└── yellow_pad/       ROS 2 package yellow_pad (copy to the Pi's ~/ros2_ws/src/)
-    ├── package.xml, CMakeLists.txt, README.md
-    ├── config/yellow_pad.yaml
-    └── launch/yellow_pad.launch.py
+├── test/             unit tests (conftest fakes rclpy)
+└── process/          DOME process docs; this file is process/02-doc/notes.md
 ```
 
 ## The hardware
@@ -130,28 +114,41 @@ yellow_pad/
 ```
 Yellow Pad ──BLE gamepad──▶ Pi: /dev/input/js0
                               └▶ joy_node          → /joy      (sensor_msgs/Joy)
-                                  └▶ teleop_twist_joy → /cmd_vel (geometry_msgs/Twist)
-                                                          └▶ robot's motor driver
+                                  ├▶ teleop_twist_joy → /cmd_vel (geometry_msgs/Twist)
+                                  │                       └▶ robot's motor driver
+                                  └▶ VM: pad_buttons  → /voice/llm_text (std_msgs/String)
+                                                          └▶ dome_voice llm_node → robot speaks
 ```
+
+### Buttons A, B, C
+
+`pad_buttons` (on the VM) watches `/joy` and, for each press of a mapped
+button, publishes its text on `/voice/llm_text` once. Holding a button sends
+nothing more. The table is `BUTTON_TEXTS` in `dome_pad/pad_buttons.py`; A
+(`/joy` button 1) asks for a robot joke, B and C are unassigned. dome_voice's
+`llm_node` (VM) asks Claude, `voice_input` (Pi) relays the reply to
+`/announcement`, and `speech_output` (Pi) says it. So the joke needs
+dome_voice running on both: `vo` in both dome2 launches.
 
 ### The screen (landscape, 320x240)
 
-There are two designs; both send the same gamepad reports for the arrows.
+The firmware is `src/main.cpp`, env `cyd`:
 
-**Tabbed design** (`src/main.cpp`, env `cyd`, the default):
-
-- **Top:** Bluetooth status, then two tabs, **Drive** and **Settings**.
+- **Top:** Bluetooth status, then three tabs, **Drive**, **ROS** and
+  **Settings**.
 - **Drive:** the cross of four arrows with a red STOP in the middle, and three
   buttons **A**, **B**, **C** on the right. Holding A/B/C holds gamepad
-  buttons 2/3/4. Nothing on the Pi uses those yet.
-- **ROS:** a topic monitor (`src/ros_tab.cpp`), fed by rosbridge on the robot's
-  Pi over Wi-Fi. **Wi-Fi is on only while this tab is open**, so driving never
-  shares the radio with it; opening the tab takes a few seconds to connect.
+  buttons 2/3/4 (see "Buttons A, B, C" above).
+- **ROS:** a topic monitor (`src/ros_tab.cpp`), fed by rosbridge on the
+  remote computer (the VM) over Wi-Fi. **Wi-Fi is on only while this tab is
+  open**, so driving never shares the radio with it; opening the tab takes a
+  few seconds to connect.
   - Needs `src/secrets.h` (git-ignored, copy `secrets.h.sample`): `WIFI_SSID`,
-    `WIFI_PASSWORD`, `ROSBRIDGE_HOST` (an IP; `.local` names aren't resolved),
-    optional `ROSBRIDGE_PORT` (9090). On the Pi:
-    `sudo apt install ros-kilted-rosbridge-suite`, then
-    `ros2 launch rosbridge_server rosbridge_websocket_launch.xml`.
+    `WIFI_PASSWORD`, `ROSBRIDGE_HOST` (the VM's IP, 192.168.4.83 as of
+    2026-11-22; `.local` names aren't resolved), optional `ROSBRIDGE_PORT`
+    (9090). rosbridge is started by `bl dome_pad remote.launch.py` (needs
+    `ros-kilted-rosbridge-suite` on the VM). If DHCP moves the VM, update
+    `secrets.h` and reflash.
   - Top: connection state and topic counts. Then `/cmd_vel` (linear and angular
     values) and `/battery_state` (volts and %, or a plain number as volts),
     dimmed when older than 5 s. Topic names are `CMD_VEL_TOPIC` and
@@ -170,17 +167,12 @@ There are two designs; both send the same gamepad reports for the arrows.
 - The pad converts a speed to a stick value by dividing by the robot's
   full-stick speed, `LINEAR_MAX` (1.5 m/s) and `ANGULAR_MAX` (1.0 rad/s) in
   `main.cpp`. **These must match `scale_linear.x` and `scale_angular.yaw` in
-  `config/yellow_pad.yaml`**; if the YAML changes, change them too, or the
+  `config/pad.yaml`**; if the YAML changes, change them too, or the
   displayed m/s will be wrong. The maximum speed is still capped by the YAML.
 
-**First design** (`src/arrows_v1.cpp`, env `cyd_v1`):
-
-- **Left:** a cross of four arrows with a red STOP in the middle.
-- **Right:** a speed list (Up, Down, Left, Right). Tap a row to select it
-  (yellow), then **−** / **+** change it by 10%. Speeds default to 50% and are
-  saved in flash (NVS, namespace `yellowpad`), so they survive power cycles.
-- **Top:** Bluetooth status, "Waiting for Bluetooth" (grey) or "Connected"
-  (green).
+An earlier single-screen design (`arrows_v1.cpp`, speeds in %) was dropped
+when the repo became dome_pad; it's in `yellow_pad`'s history. It used the
+NVS namespace `yellowpad`, which is why this one uses `yellowpad2`.
 
 ### What the pad sends
 
@@ -192,11 +184,10 @@ There are two designs; both send the same gamepad reports for the arrows.
 | Right held | left stick X right | `axes[0]` = −speed | `angular.z` = −speed × 1.0 |
 | Any arrow held | button 1 pressed | `buttons[0]` = 1 | enables motion |
 | Release / STOP / slide off | stick centered, button released | all 0 | robot stops |
-| A / B / C held (tabbed design) | button 2 / 3 / 4 | `buttons[1..3]` = 1 | nothing yet |
+| A / B / C held | button 2 / 3 / 4 | `buttons[1..3]` = 1 | nothing (A's press goes to `pad_buttons`) |
 
-Here "speed" is the stick fraction, 0 to 1: the percentage in the first
-design, or the set m/s or rad/s divided by the full-stick speed in the tabbed
-design. The full-stick speeds live on the Pi in `config/yellow_pad.yaml`
+Here "speed" is the stick fraction, 0 to 1: the set m/s or rad/s divided by
+the full-stick speed. The full-stick speeds live on the Pi in `config/pad.yaml`
 (`scale_linear.x` = 1.5 m/s, `scale_angular.yaw` = 1.0 rad/s), so the top
 speed is set in the robot's config, not on the pad.
 
@@ -206,13 +197,13 @@ touched. Lifting your finger, Bluetooth dropping, or the pad losing power all
 stop the robot. On release, teleop_twist_joy sends one zero Twist, then goes
 quiet.
 
-**Screen dimming (tabbed design):** after 2 minutes without a touch, the
+**Screen dimming:** after 2 minutes without a touch, the
 backlight dims to a faint glow. The first touch only brightens it again and
 does nothing else until you lift your finger, so tapping a dim screen can't
 drive the robot. Holding an arrow counts as touching, so the screen never dims
 while driving. Bluetooth connecting or dropping also brightens it.
 
-**Deep sleep (tabbed design):** after 10 minutes without a touch, the pad
+**Deep sleep:** after 10 minutes without a touch, the pad
 turns the backlight and screen off and deep-sleeps. Bluetooth drops, so the
 robot stops. Touch the screen to wake it: it reboots, reconnects in a few
 seconds, and ignores that touch until you lift your finger. It also sleeps
@@ -220,7 +211,7 @@ with the ROS tab open, and wakes on the Drive tab. The touch controller's
 IRQ line (GPIO 36) wakes the chip. Asleep, the board's regulator,
 USB-serial chip and power LED still draw several mA.
 
-**Runtime tracking (tabbed design), for measuring battery life:** the left
+**Runtime tracking, for measuring battery life:** the left
 end of the status bar (where the name was) shows `Run h:mm`, the running time since the battery
 was last marked charged. The status bar is the thin strip across the very
 top of the screen, above the tabs. **Press a finger on it and keep it there
@@ -275,30 +266,36 @@ bluetoothctl
 Check: `ls /dev/input/js*` and `ros2 run joy joy_enumerate_devices`.
 If pairing gets stuck: `bluetoothctl remove <addr>` and start again.
 
-### ROS package on the Pi
+### ROS package on the Pi and the VM
 
-Install or update (copy from the Mac, then build on the Pi):
+dome_pad is in dome2's `stack/packages.yaml`, so it's cloned into
+`~/ros2_ws/src/dome_pad` on both computers and pulled with the rest. On the
+Pi, first remove the old copy from before the rename (two packages that
+start the same nodes are confusing, and `yellow_joy` builds as `yellow_pad`):
 
 ```bash
-# Mac, from the repo root
-scp -r yellow_pad pitosalas@dome-R1:~/ros2_ws/src/
+rm -rf ~/ros2_ws/src/yellow_joy ~/ros2_ws/build/yellow_pad ~/ros2_ws/install/yellow_pad
+```
 
-# Pi
+Then on each computer:
+
+```bash
 cd ~/ros2_ws
-rm -rf src/yellow_joy      # old copy from before the rename; two copies of the same package break colcon
-rosdep install --from-paths src/yellow_pad -y   # installs joy, teleop_twist_joy
-colcon build --packages-select yellow_pad
+rosdep install --from-paths src/dome_pad -y   # joy, teleop_twist_joy, rosbridge_server
+colcon build --packages-select dome_pad
 source install/setup.bash
 ```
 
 Run:
 
 ```bash
-ros2 launch yellow_pad yellow_pad.launch.py
-# options: cmd_vel:=/other/topic   config:=/path/to/other.yaml
+bl dome2 robot.launch.py --options "d vo p"   # Pi: drivers, voice, pad
+bl dome2 remote.launch.py --options "vo p"    # VM: LLM node, rosbridge + pad_buttons
 ```
 
-To actually drive, the robot's bringup must also be running (it owns the
+Or one side alone: `bl dome_pad robot.launch.py` / `remote.launch.py`.
+
+To actually drive, the robot's drivers must also be running (they own the
 motor driver). Run only one teleop at a time: anything else publishing to
 `/cmd_vel` (e.g. teleop_twist_keyboard) will fight the pad.
 
@@ -308,11 +305,13 @@ motor driver). Run only one teleop at a time: anything else publishing to
 ros2 topic echo /cmd_vel
 ```
 
-With the tabbed design's default speeds (Forward and Back 0.15 m/s, Left
-and Right 0.50 rad/s): Forward → `linear.x: 0.15`, Back → `-0.15`,
+With the default speeds (Forward and Back 0.15 m/s, Left and Right
+0.50 rad/s): Forward → `linear.x: 0.15`, Back → `-0.15`,
 Left → `angular.z: 0.5`, Right → `-0.5`, release → one all-zero message.
-Forward set to 0.25 → `linear.x: 0.25`. (In the first design, 50% gives the
-same values as the defaults above, and Up at 80% gives `0.24`.)
+Forward set to 0.25 → `linear.x: 0.25`.
+
+Button A: `ros2 topic echo /voice/llm_text` on either computer, tap A once
+→ one `data: Tell me a robot joke.`; holding A sends no more.
 
 Troubleshooting:
 
@@ -326,10 +325,8 @@ Troubleshooting:
 
 ## Changing the firmware
 
-The tabbed design is `firmware/src/main.cpp`, the first design
-`firmware/src/arrows_v1.cpp`; build settings in `firmware/platformio.ini`. Each
-PlatformIO env builds one of the two files (`build_src_filter`). Add
-`-e cyd_v1` to the commands below to build or flash the first design.
+The firmware is `firmware/src/main.cpp` and `firmware/src/ros_tab.cpp`;
+build settings are in `firmware/platformio.ini` (one env, `cyd`).
 
 ### Build, flash, watch
 
@@ -352,10 +349,6 @@ XPT2046_Touchscreen from GitHub). Change them deliberately: the BLE libraries
 are sensitive to version mismatches.
 
 ### Common changes
-
-The table is for `main.cpp` (tabbed design). In `arrows_v1.cpp`, the speed step
-and default are `SPEED_STEP` (10) and `SPEED_DEFAULT` (50), and the panel is
-`SPEED_ROWS`.
 
 | Want | Change |
 |---|---|
@@ -405,16 +398,17 @@ board may use an ST7789 instead: replace `-DILI9341_2_DRIVER=1` with
 
 ## Changing the ROS side
 
+- **What a button does:** `BUTTON_TEXTS` in `dome_pad/pad_buttons.py`, keyed
+  by `/joy` button index (A = 1, B = 2, C = 3; never 0, the dead-man button).
 - **Top speeds:** `scale_linear.x` and `scale_angular.yaw` in
-  `config/yellow_pad.yaml`. Start low; raise once trusted.
+  `config/pad.yaml`. Start low; raise once trusted.
 - **TwistStamped robots:** add `publish_stamped_twist: true` under
   `teleop_twist_joy_node` → `ros__parameters`.
 - **Keep `deadzone: 0.0`.** joy rescales values outside the deadzone, so the
   stock teleop launch file's 0.3 deadzone would ignore 20% and turn 50% into
   about 29%. That's why this package has its own launch file.
-- After editing on the Mac, copy to the Pi again and rebuild. Or edit on the
-  Pi, but then copy changes back to the Mac so they aren't overwritten next
-  time.
+- Changes go through git: commit and push from where you edit, then pull
+  and rebuild on the other computers.
 
 ## Restoring the factory firmware
 

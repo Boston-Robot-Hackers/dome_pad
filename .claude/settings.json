@@ -1,0 +1,60 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(git push:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(./credentials.json)",
+      "Read(./**/*.pem)",
+      "Read(./**/id_rsa*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-secrets.sh" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/post-edit-ruff.sh" }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-context.sh" }
+        ]
+      }
+    ]
+  },
+  "autoMode": {
+    "environment": [
+      "### Project: dome_pad",
+      "**Purpose**: The Yellow Pad touchscreen gamepad for the DOME robot: ESP32 firmware plus joy/teleop, rosbridge and pad_buttons",
+      "**Package manager**: ROS 2 colcon (ament_python); PlatformIO via uvx for firmware/",
+      "**Run**: bl dome_pad robot.launch.py (Pi) / remote.launch.py (VM), or dome2's pad subsystem (p)",
+      "**Test**: /usr/bin/python3 -m pytest test/ (Pi/VM), PYTHONPATH=. uvx pytest test/ (Mac)",
+      "**Source control**: https://github.com/Boston-Robot-Hackers/dome_pad, public",
+      "**Protected branches**: main"
+    ],
+    "allow": [
+      "$defaults"
+    ]
+  }
+}
