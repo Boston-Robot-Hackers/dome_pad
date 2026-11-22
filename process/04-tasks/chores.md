@@ -10,3 +10,7 @@
       robot wasn't answering (it never sees dome_control's spoken reply),
       stopped sending the intent and apologised instead. Tests for the
       intent JSON and the node's `/intent` publish. (2026-11-22)
+- [x] Per-key 1 s cooldown in `ButtonPresses` (`COOLDOWN_S`): a ~100 ms touch
+      dropout mid-press arrived as release-then-press and sent `get_status` twice
+      (captured through rosbridge, 2026-11-22). Regression test uses those
+      timings. `update` now takes a monotonic time. (2026-11-22)

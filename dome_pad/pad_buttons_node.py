@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # pad_buttons_node — ROS node: pad button presses on /joy → LLM questions or intents
 # Author: Pito Salas and Claude Code
-# Version: 2
+# Version: 3
 # Created: 2026-11-22
 # Updated: 2026-11-22
 # Open Source Under MIT license
@@ -17,6 +17,8 @@ The button table and press detection are in `dome_pad.pad_buttons`.
 
     bl dome_pad remote.launch.py
 """
+
+import time
 
 import rclpy
 from rclpy.executors import ExternalShutdownException
@@ -40,7 +42,7 @@ class PadButtonsNode(Node):
         self.get_logger().info(f"Ready: buttons {BUTTON_ACTIONS}")
 
     def on_joy(self, msg: Joy) -> None:
-        for action in self.presses.update(msg.buttons):
+        for action in self.presses.update(msg.buttons, time.monotonic()):
             self.get_logger().info(f"Button pressed: {action}")
             self.publish(action)
 

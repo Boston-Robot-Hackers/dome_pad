@@ -123,7 +123,10 @@ Yellow Pad ──BLE gamepad──▶ Pi: /dev/input/js0
 ### The action keys: Joke, Status, C
 
 `pad_buttons` (on the VM) watches `/joy` and acts once on each press of a
-mapped button; holding a button sends nothing more. The table is
+mapped button; holding a button sends nothing more, and **a key can't fire
+again within 1 s** (`COOLDOWN_S`). The resistive screen sometimes loses
+contact for ~100 ms mid-press, which `/joy` shows as release-then-press; on
+2026-11-22 that made the robot say its status twice. The table is
 `BUTTON_ACTIONS` in `dome_pad/pad_buttons.py`, with two kinds of action:
 `LlmText` (a question on `/voice/llm_text`) and `Intent` (JSON straight to
 `/intent`, source `pad`). The labels are `ACTION_LABELS` in `main.cpp`; they

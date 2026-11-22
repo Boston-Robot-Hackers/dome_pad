@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # pad_buttons — ROS-free core of pad_buttons: which pad buttons do what
 # Author: Pito Salas and Claude Code
-# Version: 3
+# Version: 4
 # Created: 2026-11-22
 # Updated: 2026-11-22
 # Open Source Under MIT license
@@ -20,10 +20,16 @@ Two kinds of action:
   questions made Claude conclude the robot wasn't answering (it never sees
   dome_control's spoken reply) and stop sending the intent.
 
-`ButtonPresses.update` takes each `/joy` button array and returns the actions
-for mapped buttons that went from released to pressed since the last call.
-**A press fires once**: holding a button sends nothing more, and a button
-already down in the first message counts as a press.
+`ButtonPresses.update` takes each `/joy` button array, with the time, and
+returns the actions for mapped buttons that went from released to pressed
+since the last call. **A press fires once**: holding a button sends nothing
+more, and a button already down in the first message counts as a press.
+
+**A key can't fire again within `COOLDOWN_S`.** The resistive touch screen
+sometimes loses contact for a moment mid-press, which arrives as released
+then pressed: on 2026-11-22 a 100 ms dropout sent two `get_status` intents
+and the robot said its status twice. The cooldown is per key, so pressing a
+different key right after still fires.
 """
 
 import json
@@ -31,6 +37,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 INTENT_SOURCE = "pad"
+COOLDOWN_S = 1.0
 
 
 @dataclass(frozen=True)
@@ -60,8 +67,10 @@ class ButtonPresses:
         self.button_actions = button_actions
         self.button_count = max(button_actions) + 1
         self.held_buttons: set[int] = set()
+        self.last_fired_s: dict[int, float] = {}
 
-    def update(self, buttons: Sequence[int]) -> list[LlmText | Intent]:
+    def update(self, buttons: Sequence[int], now_s: float) -> list[LlmText | Intent]:
+        """`now_s` is a monotonic time in seconds, for the cooldown."""
         if len(buttons) < self.button_count:
             raise ValueError(
                 f"/joy has {len(buttons)} buttons; the mapped buttons need "
@@ -70,4 +79,11 @@ class ButtonPresses:
         down = {index for index in self.button_actions if buttons[index]}
         new_presses = sorted(down - self.held_buttons)
         self.held_buttons = down
-        return [self.button_actions[index] for index in new_presses]
+        fired = [index for index in new_presses if self.is_cooled_down(index, now_s)]
+        for index in fired:
+            self.last_fired_s[index] = now_s
+        return [self.button_actions[index] for index in fired]
+
+    def is_cooled_down(self, index: int, now_s: float) -> bool:
+        last_s = self.last_fired_s.get(index)
+        return last_s is None or now_s - last_s >= COOLDOWN_S
