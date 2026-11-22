@@ -20,15 +20,15 @@ is committed and pushed.
 - **Next for the pad:** nothing in progress. The speech delay after a key
   press is dome_voice's F15 (start there; see its `current.md`).
 
-### Hazards for a session on the Pi
+### Firmware is built on the Mac only
 
-- **`firmware/src/secrets.h` is only on the Mac** (git-ignored: Wi-Fi
-  password, `ROSBRIDGE_HOST` 192.168.4.83). The Pi's checkout can't build
-  the firmware until it's copied over from `~/mydev/dome_pad/firmware/src/`
-  on the Mac, or recreated from `secrets.h.sample`. Never commit it.
-- **Flashing needs the pad on USB** of the machine running PlatformIO
-  (`uvx --from platformio pio run -t upload` in `firmware/`). It has always
-  been the Mac; the Pi has not been tried.
+- **Don't build or flash the firmware on the Pi** (the user's decision,
+  2026-11-22). On the Pi, dome_pad is only the ROS package; leave
+  `firmware/` alone.
+- `firmware/src/secrets.h` (git-ignored: Wi-Fi password, `ROSBRIDGE_HOST`)
+  exists only on the Mac, so the Pi's checkout couldn't build it anyway.
+  Firmware changes are made and flashed from the Mac
+  (`uvx --from platformio pio run -t upload` in `firmware/`).
 
 ### Open issues
 
