@@ -1,7 +1,7 @@
 # dome_pad
 
 The Yellow Pad: an ESP32 touchscreen gamepad for the DOME robot. Hold an
-arrow to drive, tap A for a robot joke, and watch the robot's ROS topics on
+arrow to drive, tap Joke for a robot joke, and watch the robot's ROS topics on
 the pad's screen.
 
 ```
@@ -29,8 +29,8 @@ Yellow Pad ─────────────▶ Pi: joy_node ─/joy─┬
 Three tabs:
 
 - **Drive:** four arrows and STOP. Holding an arrow drives at that
-  direction's speed with the dead-man button held; letting go stops. A, B
-  and C are gamepad buttons 2-4.
+  direction's speed with the dead-man button held; letting go stops. Three
+  keys on the right, **Joke**, **Status** and **C**, are gamepad buttons 2-4.
 - **ROS:** the publish rates of `/odom` and `/scan` (placeholders for now),
   through rosbridge on the VM. Wi-Fi is on only while this tab is open.
 - **Settings:** speed for each direction, in m/s and rad/s.
@@ -43,8 +43,9 @@ press. The table is `BUTTON_TEXTS` in `dome_pad/pad_buttons.py`.
 | Pad | `/joy` button | Does |
 |---|---|---|
 | any arrow | 0 | dead-man button for teleop (never mapped) |
-| A | 1 | asks Claude for a robot joke; the robot says it |
-| B, C | 2, 3 | nothing yet |
+| Joke | 1 | asks Claude for a robot joke; the robot says it |
+| Status | 2 | asks the LLM for the robot's status; it calls `get_status`, and dome_control (the robot's `c` subsystem) says the speeds |
+| C | 3 | nothing yet |
 
 ## Running
 

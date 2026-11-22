@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # test_pad_buttons — press detection and the button table
 # Author: Pito Salas and Claude Code
-# Version: 1
+# Version: 2
 # Created: 2026-11-22
 # Updated: 2026-11-22
 # Open Source Under MIT license
@@ -55,8 +55,12 @@ def test_too_few_buttons_raises_with_the_count(presses):
         presses.update([0, 1, 0])
 
 
-def test_button_a_asks_for_a_robot_joke():
+def test_joke_key_asks_for_a_robot_joke():
     assert "robot joke" in BUTTON_TEXTS[1]
+
+
+def test_status_key_asks_for_the_robots_status():
+    assert "status" in BUTTON_TEXTS[2].lower()
 
 
 def test_dead_man_button_is_never_mapped():

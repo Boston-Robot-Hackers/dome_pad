@@ -5,7 +5,7 @@ Yellow Display" board shows four arrows and per-direction speed settings, and
 pairs with the robot's Raspberry Pi as a standard BLE gamepad. On the Pi, the
 standard `joy` and `teleop_twist_joy` packages turn it into `/cmd_vel`. On
 the remote computer (the VM), rosbridge feeds the pad's ROS tab and
-`pad_buttons` turns A/B/C presses into LLM requests.
+`pad_buttons` turns presses of the action keys (Joke, Status, C) into LLM requests.
 
 This repo is `Boston-Robot-Hackers/dome_pad`. It was `yellow_pad` (a
 submodule of `esp32-c6-demo`) until 2026-11-22. Paths below are relative to
@@ -120,12 +120,21 @@ Yellow Pad ──BLE gamepad──▶ Pi: /dev/input/js0
                                                           └▶ dome_voice llm_node → robot speaks
 ```
 
-### Buttons A, B, C
+### The action keys: Joke, Status, C
 
 `pad_buttons` (on the VM) watches `/joy` and, for each press of a mapped
 button, publishes its text on `/voice/llm_text` once. Holding a button sends
-nothing more. The table is `BUTTON_TEXTS` in `dome_pad/pad_buttons.py`; A
-(`/joy` button 1) asks for a robot joke, B and C are unassigned. dome_voice's
+nothing more. The table is `BUTTON_TEXTS` in `dome_pad/pad_buttons.py`:
+**Joke** (`/joy` button 1) asks for a robot joke; **Status** (button 2) asks
+"What's your status?"; **C** (button 3) is unassigned. The labels are
+`ACTION_LABELS` in `main.cpp`; they were A, B and C until 2026-11-22.
+
+**Status needs dome_control on the robot.** The LLM answers a status
+question by calling its `get_status` tool, which publishes a `get_status`
+intent on `/intent` and replies with nothing: dome_control's
+`motion_behavior` says the answer ("linear speed …, angular speed …").
+Without the `control` subsystem (`c`) running on the Pi, pressing Status is
+silent. Run the Pi with `--options "d c vo p"` for it. dome_voice's
 `llm_node` (VM) asks Claude, `voice_input` (Pi) relays the reply to
 `/announcement`, and `speech_output` (Pi) says it. So the joke needs
 dome_voice running on both: `vo` in both dome2 launches.
@@ -142,8 +151,8 @@ The firmware is `src/main.cpp`, env `cyd`:
     Wi-Fi or connecting to rosbridge, teal when connected to rosbridge, red
     when `secrets.h` lacks `WIFI_SSID` or `ROSBRIDGE_HOST`.
 - **Drive:** the cross of four arrows with a red STOP in the middle, and three
-  buttons **A**, **B**, **C** on the right. Holding A/B/C holds gamepad
-  buttons 2/3/4 (see "Buttons A, B, C" above).
+  keys **Joke**, **Status**, **C** on the right. Holding one holds gamepad
+  button 2/3/4 (see "The action keys" above).
 - **ROS:** publish rates of a few topics (`src/ros_tab.cpp`), fed by rosbridge on the
   remote computer (the VM) over Wi-Fi. **Wi-Fi is on only while this tab is
   open**, so driving never shares the radio with it; opening the tab takes a
@@ -199,7 +208,7 @@ NVS namespace `yellowpad`, which is why this one uses `yellowpad2`.
 | Right held | left stick X right | `axes[0]` = −speed | `angular.z` = −speed × 1.0 |
 | Any arrow held | button 1 pressed | `buttons[0]` = 1 | enables motion |
 | Release / STOP / slide off | stick centered, button released | all 0 | robot stops |
-| A / B / C held | button 2 / 3 / 4 | `buttons[1..3]` = 1 | nothing (A's press goes to `pad_buttons`) |
+| Joke / Status / C held | button 2 / 3 / 4 | `buttons[1..3]` = 1 | nothing (Joke's press goes to `pad_buttons`) |
 
 Here "speed" is the stick fraction, 0 to 1: the set m/s or rad/s divided by
 the full-stick speed. The full-stick speeds live on the Pi in `config/pad.yaml`
@@ -246,7 +255,7 @@ normal until the battery dies, then power it from USB and read `Last run`
 (one continuous session) or `Run` (the total since charge).
 
 **Limits:** resistive touch reads one point at a time, so one direction at a
-time, no diagonals, and you can't hold A/B/C while driving. Pairing works
+time, no diagonals, and you can't hold an action key while driving. Pairing works
 with Linux, macOS, Windows and Android; iOS generally ignores generic BLE
 gamepads.
 
@@ -325,8 +334,8 @@ With the default speeds (Forward and Back 0.15 m/s, Left and Right
 Left → `angular.z: 0.5`, Right → `-0.5`, release → one all-zero message.
 Forward set to 0.25 → `linear.x: 0.25`.
 
-Button A: `ros2 topic echo /voice/llm_text` on either computer, tap A once
-→ one `data: Tell me a robot joke.`; holding A sends no more.
+Joke key: `ros2 topic echo /voice/llm_text` on either computer, tap Joke once
+→ one `data: Tell me a robot joke.`; holding it sends no more.
 
 Troubleshooting:
 
@@ -372,7 +381,7 @@ are sensitive to version mismatches.
 | Bluetooth name | `BleGamepad gamepad("Yellow Pad", ...)`. Then update `device_name` in the YAML and re-pair on the Pi (`remove`, then pair again). |
 | Taps land off-target | `RAW_X_MIN/MAX`, `RAW_Y_MIN/MAX` (touch calibration) |
 | Button positions/sizes | `TAB_RECTS`, `PAD_CX`, `PAD_CY`, `KEY`, `ACTION_RECTS`, `ROW_Y`, `ROW_H`, `MINUS_RECT`, `PLUS_RECT` |
-| A/B/C labels or gamepad buttons | `ACTION_LABELS`, `ACTION_BUTTONS` |
+| Action key labels (Joke, Status, C) or gamepad buttons | `ACTION_LABELS`, `ACTION_BUTTONS` |
 | Colors | `COLOR_*` constants |
 | Which way an arrow pushes the stick | the `switch` in `sendGamepad()` |
 | Report rate / touch polling | `LOOP_MS` (20 ms) |
@@ -389,7 +398,7 @@ How the code is organized:
 - `loop()` redraws the status when the connection changes, then calls
   `handleTouch()` every 20 ms.
 - `handleTouch()` decides what's under the finger. On the Drive page, arrows,
-  STOP and A/B/C follow the finger continuously. Tabs, setting rows and −/+ act
+  STOP and the action keys follow the finger continuously. Tabs, setting rows and −/+ act
   once per tap.
 - `setActive()` / `setActionHeld()` change the held arrow or button, redraw,
   and call `sendGamepad()`, which sets the axes and buttons 1-4 and sends a
@@ -414,7 +423,8 @@ board may use an ST7789 instead: replace `-DILI9341_2_DRIVER=1` with
 ## Changing the ROS side
 
 - **What a button does:** `BUTTON_TEXTS` in `dome_pad/pad_buttons.py`, keyed
-  by `/joy` button index (A = 1, B = 2, C = 3; never 0, the dead-man button).
+  by `/joy` button index (Joke = 1, Status = 2, C = 3; never 0, the dead-man
+  button). The key labels are `ACTION_LABELS` in `main.cpp`.
 - **Top speeds:** `scale_linear.x` and `scale_angular.yaw` in
   `config/pad.yaml`. Start low; raise once trusted.
 - **TwistStamped robots:** add `publish_stamped_twist: true` under

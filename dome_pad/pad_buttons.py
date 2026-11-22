@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # pad_buttons — ROS-free core of pad_buttons: which pad buttons send which text
 # Author: Pito Salas and Claude Code
-# Version: 1
+# Version: 2
 # Created: 2026-11-22
 # Updated: 2026-11-22
 # Open Source Under MIT license
 """`BUTTON_TEXTS` maps a `/joy` button index to the text it sends to the LLM.
 
 The pad's gamepad buttons 1-4 arrive as `/joy` buttons 0-3. Button 0 is the
-dead-man button that every arrow holds, so it is never mapped here. A, B and
-C are buttons 1, 2 and 3.
+dead-man button that every arrow holds, so it is never mapped here. The keys
+labelled Joke, Status and C (`ACTION_LABELS` in the firmware) are buttons 1,
+2 and 3.
 
 `ButtonPresses.update` takes each `/joy` button array and returns the texts
 for mapped buttons that went from released to pressed since the last call.
@@ -20,7 +21,8 @@ already down in the first message counts as a press.
 from collections.abc import Sequence
 
 BUTTON_TEXTS = {
-    1: "Tell me a robot joke.",  # A
+    1: "Tell me a robot joke.",  # Joke
+    2: "What's your status?",  # Status: the LLM calls get_status; dome_control speaks
 }
 
 

@@ -8,7 +8,7 @@ firmware, plus the ROS 2 package that connects it to the robot.
 
 - **Firmware** (`firmware/`): a BLE gamepad with Drive, ROS and Settings
   tabs. Drive sends stick values with button 0 held as the dead-man button;
-  A, B and C are buttons 1-3 on `/joy`. The ROS tab shows the publish rates
+  the Joke, Status and C keys are buttons 1-3 on `/joy`. The ROS tab shows the publish rates
   of a few fixed topics (now `/odom` and `/scan`), fed by rosbridge over
   Wi-Fi; nothing else is subscribed. Power saving: dimming, deep sleep, runtime
   tracking.
@@ -25,8 +25,9 @@ firmware, plus the ROS 2 package that connects it to the robot.
 | `/joy` button | Pad | Action |
 |---|---|---|
 | 0 | any arrow | dead-man button; never mapped |
-| 1 | A | "Tell me a robot joke." to the LLM |
-| 2, 3 | B, C | unassigned |
+| 1 | Joke | "Tell me a robot joke." to the LLM |
+| 2 | Status | "What's your status?" to the LLM, which publishes a `get_status` intent; dome_control answers it |
+| 3 | C | unassigned |
 
 ## Out of scope
 

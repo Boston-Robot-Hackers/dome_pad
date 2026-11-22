@@ -1,9 +1,10 @@
 // Yellow Pad, tabbed design: a touchscreen BLE gamepad for driving a ROS robot via teleop_twist_joy.
 //
 // Drive tab: holding an arrow moves the left stick in that direction and holds
-// button 1 (the teleop enable / dead-man button). A, B and C hold buttons 2-4.
-// Releasing stops. Settings tab: per-direction speeds in m/s and rad/s, saved in flash.
-// On the remote computer, dome_pad's pad_buttons node turns A/B/C presses into actions.
+// button 1 (the teleop enable / dead-man button). The Joke, Status and C keys hold
+// buttons 2-4. Releasing stops. Settings tab: per-direction speeds in m/s and rad/s,
+// saved in flash. On the remote computer, dome_pad's pad_buttons node turns key presses
+// into actions.
 
 #include <Arduino.h>
 #include <BleGamepad.h>
@@ -71,7 +72,8 @@ enum Tab { DRIVE, ROS, SETTINGS, TAB_COUNT };
 const char* const TAB_NAMES[TAB_COUNT] = {"Drive", "ROS", "Settings"};
 
 constexpr int ACTION_COUNT = 3;
-const char* const ACTION_LABELS[ACTION_COUNT] = {"A", "B", "C"};
+// What each key does is set on the remote computer (dome_pad's pad_buttons), not here.
+const char* const ACTION_LABELS[ACTION_COUNT] = {"Joke", "Status", "C"};
 const uint8_t ACTION_BUTTONS[ACTION_COUNT] = {BUTTON_2, BUTTON_3, BUTTON_4};
 
 // A numeric setting, stored in thousandths of its unit (mm/s, mrad/s).
